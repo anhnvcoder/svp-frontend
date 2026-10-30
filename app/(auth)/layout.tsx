@@ -2,7 +2,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getMessages, getTranslations } from "next-intl/server";
 import type { ReactNode } from "react";
 
-// Frame of the login and register pages (web/design/AuthForm.dc.html; SVP Desktop.dc.html D07, D08): full screen on
+// Frame of the login and register pages (design/AuthForm.dc.html; SVP Desktop.dc.html D07, D08): full screen on
 // a phone, a card in the middle of a wide screen.
 export default async function AuthLayout({ children }: { children: ReactNode }) {
   const [messages, common] = await Promise.all([getMessages(), getTranslations("common")]);

@@ -65,7 +65,7 @@ function withNext(path: string, next: string | undefined): string {
   return next ? `${path}?${new URLSearchParams({ next })}` : path;
 }
 
-// Login and register form of web/design/AuthForm.dc.html. It posts to a Server Action, so it works without
+// Login and register form of design/AuthForm.dc.html. It posts to a Server Action, so it works without
 // JavaScript; with it, the fields are checked first and errors show without a round trip. The action sends back the
 // email to fill in again, never the password.
 export function AuthForm({ mode, action, next }: AuthFormProps) {

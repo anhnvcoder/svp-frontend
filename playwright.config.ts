@@ -5,7 +5,7 @@ import { stack } from "./e2e/stack";
 // SVP_E2E_EVIDENCE=<absolute folder> turns the run into one a person can review afterwards: trace, video and (Chromium
 // only, see the webkit project) a final screenshot of every test, an HTML report (<folder>/report) and a JSON one
 // (<folder>/results.json), the artefacts under <folder>/artifacts, and e2e/evidence.e2e.ts, which takes full-page
-// screenshots of every screen into <folder>/screens. Without it the run is the plain one of `make web-e2e` and CI.
+// screenshots of every screen into <folder>/screens. Without it the run is the plain one of `make e2e` and CI.
 const evidence = process.env.SVP_E2E_EVIDENCE;
 if (evidence !== undefined && !isAbsolute(evidence)) {
   throw new Error("SVP_E2E_EVIDENCE must be an absolute path");
@@ -49,9 +49,9 @@ const webkit = {
 // Playwright runs the projects one after the other in this order, so both browsers have run every other test first.
 const publishes = /@publishes/;
 
-// End-to-end tests of the web client on the compose stack of `make up` (`make web-e2e`, `make measure-web`): the
+// End-to-end tests of the web client on the compose stack of `make up` (`make e2e`, `make measure-web`): the
 // browser opens the `web` container at http://localhost:3001, the origin its CSRF check and cookie form expect.
-// With SVP_STACK=k3d (`make k8s-web-e2e`) the same tests, on both
+// With SVP_STACK=k3d (`make k8s-e2e`) the same tests, on both
 // browsers, open the web of cluster svp at https://svp.localhost:8443 instead (e2e/stack.ts). e2e/global-setup.ts
 // seeds the videos through the gateway first.
 export default defineConfig({

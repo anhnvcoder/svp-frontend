@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# `make measure-web`, run from web/ on the compose stack of `make up`: the memory of the `web` container at rest, the
-# whole e2e run (which includes the first-frame test, e2e/first-frame.e2e.ts), the memory right after, then one summary:
-# time to first frame p50/p95 per browser and the two memory readings, printed and written to
-# test-results/measure-web-<UTC time>.json (gitignored). Memory is MemUsage of `docker stats --no-stream`, the
-# container's cgroup memory less its inactive file cache; "at rest" is when this script starts, so run it right after
-# `make up` for the reading the Definition of Done asks for. Exits with the e2e run's status.
+# `make measure-web`, run from the repository root on the backend's compose stack (`make up` there): the memory of the
+# `web` container at rest, the whole e2e run (which includes the first-frame test, e2e/first-frame.e2e.ts), the memory
+# right after, then one summary: time to first frame p50/p95 per browser and the two memory readings, printed and
+# written to test-results/measure-web-<UTC time>.json (gitignored). Memory is MemUsage of `docker stats --no-stream`,
+# the container's cgroup memory less its inactive file cache; "at rest" is when this script starts, so run it right
+# after the backend's `make up` for the reading the Definition of Done asks for. Exits with the e2e run's status.
 #
 # LOCAL LAB ONLY, like the e2e run itself (e2e/seed.sh resets the gateway's register rate limit in Redis db 10).
 set -euo pipefail
@@ -50,5 +50,5 @@ echo "measure-web:"
 jq -r '.first_frame | to_entries[] | "  first frame \(.key): p50 \(.value.p50_ms) ms, p95 \(.value.p95_ms) ms (\(.value.moves) moves)"' "$out"
 ((${#frames[@]} == 2)) || echo "  first frame: measured in ${#frames[@]} of 2 browsers (see the e2e output above)"
 jq -r '.web_memory_mib | "  web memory: \(.at_rest) MiB at rest, \(.after_e2e) MiB after e2e"' "$out"
-echo "  written to web/$out"
+echo "  written to $out"
 exit "$status"

@@ -11,7 +11,7 @@ const looks: Record<VideoStatus, { Icon: LucideIcon; tone: string }> = {
   FAILED: { Icon: CircleAlert, tone: "bg-danger-surface text-danger" },
 };
 
-// The state of one of the user's videos (web/design/SVP Mobile.dc.html M33): an icon and a word as well as a color, so
+// The state of one of the user's videos (design/SVP Mobile.dc.html M33): an icon and a word as well as a color, so
 // it does not rely on color alone.
 export function StatusBadge({ status, className }: { status: VideoStatus; className?: string }) {
   const t = useTranslations("profile.status");

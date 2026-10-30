@@ -16,7 +16,7 @@ type ProfileHeaderProps = {
   onBack: () => void;
 };
 
-// Top of another user's profile (web/design/SVP Mobile.dc.html M35–M37; SVP Desktop.dc.html D10): on a phone a bar
+// Top of another user's profile (design/SVP Mobile.dc.html M35–M37; SVP Desktop.dc.html D10): on a phone a bar
 // with back, @handle and copy link above the avatar, name and a full-width follow button; on a wide screen one row.
 // The follow button is a toggle: aria-pressed says whether the user is followed, the label and icon say it too.
 export function ProfileHeader({

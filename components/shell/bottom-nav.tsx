@@ -19,7 +19,7 @@ function itemState(current: boolean): string {
   return current ? "font-bold text-foreground" : "font-medium text-muted";
 }
 
-// Bottom navigation of small screens (web/design/BottomNav.dc.html): Home, Upload, Profile. Log out is on the profile
+// Bottom navigation of small screens (design/BottomNav.dc.html): Home, Upload, Profile. Log out is on the profile
 // page (/me), as in the design.
 export function BottomNav() {
   const t = useTranslations("shell");

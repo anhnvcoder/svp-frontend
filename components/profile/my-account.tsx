@@ -15,7 +15,7 @@ type MyAccountProps = {
   children?: ReactNode;
 };
 
-// Top of "My videos" (web/design/SVP Mobile.dc.html M33–M34; SVP Desktop.dc.html D09). On a phone a bar with the title
+// Top of "My videos" (design/SVP Mobile.dc.html M33–M34; SVP Desktop.dc.html D09). On a phone a bar with the title
 // and log out: the bottom bar has no log out, so this page must. On a wide screen the side bar has it, and the account
 // row gets the upload link instead.
 export function MyAccount({ userId, account, children }: MyAccountProps) {

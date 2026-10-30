@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# `make measure-upload`, run from web/ on the compose stack of `make up`: one upload of a ~100 MB video from Chromium
-# through /upload (e2e/measure-upload.e2e.ts), then one summary: the time from the XHR's start to its load, the
-# throughput, the CPU of the page's main thread while the file went up, and the time to READY; printed and written to
-# test-results/measure-upload-<UTC time>.json (gitignored).
+# `make measure-upload`, run from the repository root on the backend's compose stack (`make up` there): one upload of a
+# ~100 MB video from Chromium through /upload (e2e/measure-upload.e2e.ts), then one summary: the time from the XHR's
+# start to its load, the throughput, the CPU of the page's main thread while the file went up, and the time to READY;
+# printed and written to test-results/measure-upload-<UTC time>.json (gitignored).
 #
 # The video is real and transcodes: 160 s of 1080p test pattern with noise at about 5 Mbit/s, so ~100 MB while staying
 # under the 180 s the web and media-worker accept. It is made in a temporary folder, removed at the end.
@@ -36,4 +36,4 @@ jq -r '"  file: \(.file_mb) MB, \(.duration_s) s 1080p",
   "  XHR start to load: \(.upload_ms) ms, \(.throughput_mb_s) MB/s",
   "  page main thread while uploading: TaskDuration \(.cpu.task_ms) ms, ScriptDuration \(.cpu.script_ms) ms (\(.cpu.task_share_pct) % of the window)",
   "  XHR start to READY: \(.ready_ms) ms"' "$out"
-echo "  written to web/$out"
+echo "  written to $out"

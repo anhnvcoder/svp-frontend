@@ -1,0 +1,417 @@
+# Checks of every pull request and of every push to main: lint, format, typecheck, unit tests, production build and
+# bundle budgets (make check), gen/api.d.ts as generated from the released API contract (make generate-check), the
+# vulnerability gate of the lockfile (make lockfile-scan), the rules of .trivyignore.yaml, the platform guard of the
+# CI scripts, actionlint, and the secret scan of the whole git history. Job ci-ok is the only check the ruleset of main
+# requires from this workflow, so the other jobs can be renamed or added without touching it. Job stack runs this pull
+# request's web client end to end against the backend staging runs, as a report outside ci-ok, so a flaky run on a
+# shared runner never blocks a merge.
+#
+# The scripts shared with the backend repository (scan gate, platform guard) and the versions of its pinned tools are
+# read from .backend/, the backend checked out at the commit of .backend-commit (make backend-checkout), the one place
+# this repository pins it.
+#
+# The repository is public and a pull request from a fork runs this workflow with the fork's code, so:
+# - no pull_request_target and no workflow_run: a pull request never runs with a write token or with secrets;
+# - every job that runs code of the repository has contents: read and nothing else. The only job with a write
+#   permission (sarif, security-events: write) runs on main outside pull requests and executes nothing of the
+#   repository: it uploads the SARIF reports the other jobs left as artifacts;
+# - every action is GitHub's own and pinned to a full commit SHA: a tag moved to other code changes nothing here;
+# - checkout never leaves the token in .git/config (persist-credentials: false);
+# - values an outsider controls (branch names, titles) never go into a script through ${{ }}: only through env.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # Run by hand on any branch. No paths filter on any trigger: a required check whose workflow does not run is never
+  # reported and leaves the pull request waiting.
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # A new push to a pull request makes its previous run useless. On main a running run is never cancelled, but the
+  # group holds one running and one pending run: a newer push replaces the pending one, so with several merges during
+  # one run the commits in between get no result of their own (the newest commit's run checks the code they led to).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Install exactly as pnpm-lock.yaml pins it, make check, gen/api.d.ts as committed, and the vulnerability gate of
+  # every npm package the lockfile pins.
+  check:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    services:
+      # The BFF's session tests use Redis db 15 (default SVP_TEST_REDIS_URL of the Makefile), on loopback only.
+      redis:
+        image: docker.io/library/redis:8.8.3-trixie@sha256:eb1aa641bc5380ed14442398e45a5a51aeaaac919fab811e4f134eb77c71dd2d
+        # The runner hands this string to docker create -p as it is, so the port is published on loopback only.
+        ports:
+          - 127.0.0.1:6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The Node major of .nvmrc, the one the dev machine's nvm and the Dockerfile use. No cache input: its pnpm cache
+      # needs pnpm on PATH before Node is there, so the store is cached below instead.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # pnpm the same way as on the dev machine and in the Dockerfile: Node 25 and later ship no Corepack, and the
+      # repository allows no third-party action (pnpm/action-setup). The exact version is read from the packageManager
+      # field of package.json, the one place it is pinned (Renovate updates it).
+      - id: pnpm
+        name: Install pnpm
+        run: &install-pnpm |
+          version=$(node -p 'require("./package.json").packageManager.split("@")[1]')
+          npm install -g "pnpm@$version"
+          echo "store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      # The pnpm store, keyed on the lockfile. What protects this cache is its scope: a pull request saves into its own
+      # scope only, never main's, so it cannot plant a store that main later restores. pnpm checks the integrity hash
+      # of pnpm-lock.yaml only when it downloads a tarball, not for packages already in a restored store.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm.outputs.store }}
+          key: pnpm-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+      # The trivy DB of the lockfile scan below, one cache entry per day, restored before any step that can fail;
+      # trivy still downloads a newer DB when the cached one is stale. A pull request's cache stays in its own ref and
+      # never replaces main's.
+      - id: day
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/trivy-cache/db
+          key: trivy-db-${{ steps.day.outputs.day }}
+          restore-keys: trivy-db-
+      - run: make install
+      - run: make check
+      # Checks the digest, version and signature of the released contract, anonymously over the network, before it
+      # compares; writes nothing under gen/.
+      - run: make generate-check
+      # Any CRITICAL in pnpm-lock.yaml (development dependencies included) fails the job; HIGH and below are only
+      # counted in the job summary and the SARIF. It runs even when a step above failed, so a pull request always shows
+      # the gate's result. The SARIF is written before the gate decides; job sarif uploads it on main.
+      - name: make lockfile-scan
+        if: ${{ !cancelled() }}
+        env:
+          SVP_TRIVY_CACHE: ${{ runner.temp }}/trivy-cache
+        run: make lockfile-scan LOCKFILE_SARIF="$RUNNER_TEMP/trivy-lockfile.sarif"
+      - name: Summary of the lockfile scan
+        if: always()
+        env:
+          SARIF: ${{ runner.temp }}/trivy-lockfile.sarif
+          TOOL: trivy lockfile
+        run: &sarif-summary |
+          # Rule, level and place of each finding (no message), at most 50 rows; nothing when the tool wrote no report.
+          [ -f "$SARIF" ] || exit 0
+          jq -r --arg tool "$TOOL" '[.runs[].results[]] as $r
+            | "### \($tool): \($r | length) finding(s)", "",
+              "| Level | Rule | Location |", "| --- | --- | --- |",
+              ($r[:50][] | .locations[0].physicalLocation as $l
+                | "| \(.level // "warning") | \(.ruleId) | \($l.artifactLocation.uri // "-"):\($l.region.startLine // "-") |")' \
+            "$SARIF" >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the lockfile scan report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sarif-trivy-lockfile
+          path: ${{ runner.temp }}/trivy-lockfile.sarif
+          if-no-files-found: ignore
+
+  # What no test covers: the rules of .trivyignore.yaml, the platform guard and the workflows themselves.
+  config:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The backend at .backend-commit, anonymously over HTTPS: no token, no secret.
+      - run: make backend-checkout
+      # Here and not only in the lockfile gate: a broken entry merged into main would stop the image gate and the daily
+      # rescan of the web release too. Needs no image, no tool and no token.
+      - name: Rules of .trivyignore.yaml
+        run: SVP_CODE_ROOT="$PWD" .backend/deploy/ci/scan-gate.sh --check-ignorefile
+      # Only the backend's deploy/ci/platform.sh may read the CI's variables or call its API: a script of this
+      # repository that does it itself works here and silently loses its output on another CI. Every file of this
+      # repository counts, documentation included, except .github/ and .backend/. bash, git and jq: no network.
+      - run: .backend/deploy/ci/platform-guard.sh "$PWD"
+      # Go only to build the two pinned tools below, at the Go of the backend's go.mod: no second pin.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .backend/go.mod
+          cache: false
+      # gitleaks and actionlint (make tools) at the versions the backend's Makefile pins, rebuilt only when the list of
+      # tools (this Makefile) or their versions (the backend's) change.
+      - id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/bin
+          key: &tools-key tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Makefile', '.backend/Makefile') }}
+      - name: Install the pinned tools
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: make tools
+      # Every workflow of .github/workflows/, with the runner's shellcheck on their run: scripts.
+      - name: actionlint
+        run: '"$(go env GOPATH)/bin/actionlint"'
+
+  # gitleaks over the whole history of every ref (no --log-opts: setting it drops gitleaks's default --full-history
+  # --all). Any finding fails the job. --redact keeps the secret out of the log and the report, which anyone can read on
+  # a public repository. A false positive (a test fixture) is allowed only in .gitleaks.toml, narrowly, with the reason
+  # beside it.
+  gitleaks:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: make backend-checkout
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .backend/go.mod
+          cache: false
+      - id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/bin
+          key: *tools-key
+      - name: Install the pinned tools
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: make tools
+      - name: gitleaks (whole history)
+        run: >-
+          "$(go env GOPATH)/bin/gitleaks" git --redact --no-banner
+          --report-format sarif --report-path "$RUNNER_TEMP/gitleaks.sarif"
+      - name: Summary of gitleaks
+        if: always()
+        env:
+          SARIF: ${{ runner.temp }}/gitleaks.sarif
+          TOOL: gitleaks
+        run: *sarif-summary
+      - name: Keep the gitleaks report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sarif-gitleaks
+          path: ${{ runner.temp }}/gitleaks.sarif
+          if-no-files-found: ignore
+
+  # This pull request's web client end to end against the backend staging runs: the backend's compose stack at the
+  # commit of envs/stg/charts.yaml on main of svp-gitops, its six services and their migrations from the releases of
+  # envs/stg/images/ there (pulled by digest, no Go build), the web image built from this checkout; then the backend's
+  # smoke run, the end-to-end tests on Chromium and WebKit, and Lighthouse. The three repositories sit side by side as
+  # in the lab's workspace (frontend/, backend/, gitops/), and each script is told the other two through SVP_*_DIR.
+  # A report, not a check: ci-ok does not need it, so a red stack (a flaky end-to-end test on a shared runner, a backend
+  # release staging has not settled) never blocks a merge; whoever reads the pull request sees its result under this
+  # name. It builds and runs the pull request's code like the other jobs, with contents: read and no secret: the
+  # backend's make env writes a .env of fresh random secrets that lives on this runner until the job ends, never printed
+  # or uploaded. The LOCAL LAB ONLY resets of smoke, the end-to-end seed and Lighthouse (they delete the gateway's
+  # register rate limit keys in Redis db 10) touch only the Redis service container below, which belongs to this run.
+  stack:
+    name: stack (end-to-end on the backend of staging, report only)
+    runs-on: ubuntu-24.04
+    # Six pulls, one image build, the e2e seed, two browsers. The limit leaves room for a slow runner and stops a hung
+    # step long before GitHub's default of 6 hours.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      SVP_WEB_DIR: ${{ github.workspace }}/frontend
+      SVP_BACKEND_DIR: ${{ github.workspace }}/backend
+      SVP_GITOPS_DIR: ${{ github.workspace }}/gitops
+    services:
+      # The compose containers reach these as host.docker.internal, which compose's host-gateway maps to the gateway of
+      # Docker's default bridge (docker0, 172.17.0.1). So each is published on that address and on loopback (psql of
+      # the backend's Postgres bootstrap and redis-cli of the scripts run on the runner), never on every interface.
+      postgres:
+        image: docker.io/library/postgres:15.19-trixie@sha256:c961aa287d8698297cb26cdfadfbe9fd2cbaf77e53cfffe9636e8d8a1e4d842c
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 127.0.0.1:5432:5432
+          - 172.17.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      # The gateway (db 10), feed-service (db 14) and the web's sessions (db 9) of this run only.
+      redis:
+        image: docker.io/library/redis:8.8.3-trixie@sha256:eb1aa641bc5380ed14442398e45a5a51aeaaac919fab811e4f134eb77c71dd2d
+        ports:
+          - 127.0.0.1:6379:6379
+          - 172.17.0.1:6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: frontend
+          persist-credentials: false
+      # The deployment configuration as main has it now, public, read with the job's read-only token.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: anhnvcoder/svp-gitops
+          ref: main
+          path: gitops
+          persist-credentials: false
+      # One full commit SHA or a red step: make stg-revision checks it before it goes into the checkout below.
+      - id: stg
+        name: The backend commit staging runs
+        working-directory: frontend
+        run: |
+          revision=$(make -s stg-revision)
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: anhnvcoder/short-video-platform
+          ref: ${{ steps.stg.outputs.revision }}
+          path: backend
+          persist-credentials: false
+      # A backend older than the stack mode that runs the releases of staging (make up IMAGES=stg) would ignore IMAGES
+      # and build its six services from source: not the backend staging runs. Stopped here, before anything is built.
+      - name: The backend there runs the releases of staging
+        run: make -C frontend stg-check
+      # make env runs go run ./tools/jwtkey for the JWT key pair, at the Go of that backend's go.mod.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # host-gateway is the gateway of the default bridge (unless the daemon sets host-gateway-ip), and the services
+      # above are published on 172.17.0.1: if the two differ, every compose service fails to reach Postgres and Redis
+      # with a timeout far from its cause. Said here, before anything is pulled or built.
+      - run: make -C backend ci-bridge-check
+      # Node and pnpm as in job check: the end-to-end tests, Lighthouse and the Playwright browsers run from frontend/.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/.nvmrc
+      - id: pnpm
+        name: Install pnpm
+        working-directory: frontend
+        run: *install-pnpm
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm.outputs.store }}
+          key: pnpm-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+      # What the scripts run on the runner, from Ubuntu's archive (no third-party action): psql of the Postgres
+      # bootstrap (16 here; its SQL needs 15 or later), redis-cli of the rate limit reset, ffmpeg for the test videos of
+      # smoke, the e2e seed and Lighthouse, jq everywhere. curl and openssl come with the image.
+      - name: Install the tools of the scripts
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends postgresql-client redis-tools ffmpeg jq
+      - run: make -C backend env
+      # The six services and their migrations from envs/stg/images/ of gitops/ (pulled for this runner's architecture
+      # before anything starts), the web built from frontend/ with its own Dockerfile.
+      - run: make -C backend up IMAGES=stg WEB_FROM=clone
+      - run: make -C backend smoke
+      - run: make -C frontend install
+      # The browsers of playwright.config.ts at the version pnpm-lock.yaml pins, with their system libraries (apt,
+      # through sudo).
+      - name: Install the Playwright browsers
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium webkit
+      # Traces of failed tests stay in frontend/test-results/ on the runner: they hold session cookies and are never
+      # uploaded.
+      - run: make -C frontend e2e
+      # make lighthouse launches Playwright's Chromium with Chrome's sandbox, which needs unprivileged user namespaces.
+      # Ubuntu 24.04 restricts those through AppArmor for every binary without a profile of its own, and Playwright's
+      # download has none, so Chrome stops with "No usable sandbox". The restriction is lifted on this throwaway runner,
+      # so the sandbox stays on; the end-to-end tests turn it off themselves.
+      - name: Let Chrome's sandbox use user namespaces
+        run: |
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)" = 1 ]; then
+            sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          echo "apparmor: kernel.apparmor_restrict_unprivileged_userns" \
+            "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)"
+      # Report only: one Lighthouse run per page on a shared runner is noise, so its thresholds never turn the job red.
+      - id: lighthouse
+        run: make -C frontend lighthouse
+        continue-on-error: true
+      - name: Container state
+        if: failure()
+        run: make -C backend ps
+      # The reports lighthouse/run.sh wrote at the top of its folder after replacing the session cookie in them (it
+      # deletes them when a cookie value is still found). Its .lighthouseci/ subfolder, with the results before that
+      # replacement, is matched by neither pattern and is a hidden folder, which upload-artifact leaves out. Skipped
+      # when the step was cancelled mid-run or never ran.
+      - name: Keep the Lighthouse reports
+        if: always() && (steps.lighthouse.outcome == 'success' || steps.lighthouse.outcome == 'failure')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lighthouse
+          path: |
+            frontend/test-results/lighthouse/*.html
+            frontend/test-results/lighthouse/*.json
+          if-no-files-found: ignore
+      # Skipped only when the backend was never checked out (nothing was started then).
+      - name: make down
+        if: always() && hashFiles('backend/Makefile') != ''
+        run: make -C backend down
+
+  # The code scanning upload, the one job with a write permission. Only on main outside pull requests: a pull request
+  # (from a branch of the repository or from a fork) runs its own code before anyone has read it, so it never gets
+  # security-events: write; its findings stay in the artifacts and job summaries. This job checks the code out only so
+  # upload-sarif can read the lines of each finding and fingerprint it (an alert then survives a line shift with its
+  # history and dismissal): it runs nothing of the repository. It is a report, not a check: ci-ok does not need it,
+  # and a failed upload still turns the run red.
+  sarif:
+    needs: [check, gitleaks]
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Each report the jobs above left, in sarif/<artifact name>/; a job that stopped before writing its report left
+      # none, and its upload below is skipped.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: sarif-*
+          path: sarif
+      - if: hashFiles('sarif/sarif-gitleaks/gitleaks.sarif') != ''
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: sarif/sarif-gitleaks/gitleaks.sarif
+          category: gitleaks
+      - if: hashFiles('sarif/sarif-trivy-lockfile/trivy-lockfile.sarif') != ''
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: sarif/sarif-trivy-lockfile/trivy-lockfile.sarif
+          category: trivy-lockfile
+
+  # The required check. It runs whatever happened before it (always()) and fails unless every check job succeeded:
+  # GitHub counts a skipped required check as passed, and a job that failed or was cancelled does not fail the jobs
+  # that need it by itself. None of the three has a condition, so skipped here can only mean a wrong if: and is red too.
+  # No condition may ever skip ci-ok itself.
+  ci-ok:
+    needs: [check, config, gitleaks]
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Every check job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$NEEDS"
+          jq -e 'length == 3 and all(.[]; .result == "success")' <<< "$NEEDS" > /dev/null

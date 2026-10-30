@@ -33,7 +33,7 @@ type SidebarDesktopProps = {
   appName: string;
 };
 
-// Side bar of wide screens (web/design/SidebarDesktop.dc.html): Home and Profile, the Upload button, the feed's
+// Side bar of wide screens (design/SidebarDesktop.dc.html): Home and Profile, the Upload button, the feed's
 // shortcuts on Home, the account with log out.
 export function SidebarDesktop({ account, appName }: SidebarDesktopProps) {
   const t = useTranslations("shell");

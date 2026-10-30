@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# `make k8s-web-e2e`, run from web/ (the Makefile puts Node and pnpm of web/ first on PATH): the end-to-end tests of
+# `make k8s-e2e`, run from the repository root (the Makefile puts Node and pnpm first on PATH): the end-to-end tests of
 # e2e/*.e2e.ts against the web of cluster svp at https://svp.localhost:8443 instead of the compose stack
 # (e2e/stack.ts), on Chromium and WebKit.
 # - .k8s/ca.crt and the cluster's API must be there, or nothing runs. Then SVP_STACK=k3d, and curl (e2e/seed.sh) and
@@ -8,20 +8,23 @@
 # - SVP_E2E_GLITCHTIP=1 adds e2e/glitchtip.e2e.ts, which reads the cluster's GlitchTip API: the read-only token of
 #   Secret svp-obs/glitchtip-api goes into SVP_E2E_GLITCHTIP_TOKEN of the run's environment only (never printed, never
 #   on a command line), and a port-forward to service/glitchtip on 127.0.0.1:8000 (the port of make k8s-ui-glitchtip
-#   and make k8s-web-sourcemaps) lives as long as the run, stopped by its pid however the run ends.
-# SVP_E2E_EVIDENCE and every argument pass on to `playwright test`, as with make web-e2e.
+#   and make k8s-sourcemaps) lives as long as the run, stopped by its pid however the run ends.
+# SVP_E2E_EVIDENCE and every argument pass on to `playwright test`, as with make e2e.
 #
-# LOCAL LAB ONLY, like make web-e2e: e2e/seed.sh and every Playwright worker delete the gateway's register rate limit
+# LOCAL LAB ONLY, like make e2e: e2e/seed.sh and every Playwright worker delete the gateway's register rate limit
 # keys (svp:gw:rl:register:*) in Valkey db 10 of the cluster (kubectl exec, context k3d-svp). Never point it at a
 # shared cluster.
 set -euo pipefail
 
-# shellcheck source=deploy/k8s/lib.sh
-. "$(dirname "$0")/../../deploy/k8s/lib.sh"
+# The harness of the backend whose cluster this run talks to (scripts/backend.sh dir: SVP_BACKEND_DIR or
+# <workspace>/backend); repo_root below is that backend.
+backend=$(bash "$(dirname "$0")/../scripts/backend.sh" dir)
+# shellcheck source=/dev/null # deploy/k8s/lib.sh of the backend
+. "$backend/deploy/k8s/lib.sh"
 
 ca=$repo_root/.k8s/ca.crt
-[ -s "$ca" ] || fail ".k8s/ca.crt missing; run make k8s-up (or make k8s-ca)"
-kc get --raw /readyz >/dev/null 2>&1 || fail "cluster svp is not reachable (context k3d-svp); run make k8s-up"
+[ -s "$ca" ] || fail "$ca missing; run make k8s-up (or make k8s-ca) in the backend"
+kc get --raw /readyz >/dev/null 2>&1 || fail "cluster svp is not reachable (context k3d-svp); run make k8s-up in the backend"
 export SVP_STACK=k3d CURL_CA_BUNDLE=$ca NODE_EXTRA_CA_CERTS=$ca
 
 glitchtip=http://127.0.0.1:8000

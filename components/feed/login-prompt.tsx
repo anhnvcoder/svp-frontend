@@ -15,7 +15,7 @@ type LoginPromptProps = {
   onClose: () => void;
 };
 
-// Asks a guest to log in when they press like or follow (web/design/FeedMobile.dc.html M09: a bottom sheet;
+// Asks a guest to log in when they press like or follow (design/FeedMobile.dc.html M09: a bottom sheet;
 // FeedDesktop.dc.html D03: a centered dialog). Modal: focus moves to its first action, Tab and Shift+Tab go round its
 // own controls without reaching the page under the backdrop, and focus comes back to the button that opened it;
 // Escape, the backdrop and "Later" close it.

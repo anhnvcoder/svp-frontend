@@ -21,6 +21,8 @@ export default defineConfig([
     },
   },
   globalIgnores([
+    // The checkout of the backend (make backend-checkout): another repository's code.
+    ".backend/**",
     ".next/**",
     "gen/**",
     "design/**",

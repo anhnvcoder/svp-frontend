@@ -1,4 +1,4 @@
-# Generated from services/gateway/openapi.yaml by `make web-generate`.
+# Generated from the gateway's released contract (api/contract.json) by `make generate`.
 gen/
 # Verbatim copy of the Claude Design project, never edited by hand.
 design/

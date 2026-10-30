@@ -1,4 +1,4 @@
-# pnpm settings only: web/ is a single package, not a workspace.
+# pnpm settings only: this repository is a single package, not a workspace.
 
 # A version must be 3 days old before pnpm installs it (4320 minutes), the same wait as Renovate's minimumReleaseAge:
 # most hijacked npm releases are found and pulled within that time.
@@ -33,7 +33,7 @@ allowBuilds:
 # standalone server of the image.
 ignoredOptionalDependencies:
   - sharp
-# Patched versions of packages that only @lhci/cli (make web-lighthouse) pulls in; none of them reaches the web image.
+# Patched versions of packages that only @lhci/cli (make lighthouse) pulls in; none of them reaches the web image.
 # @lhci/cli 0.15.1 is its latest release and pins lighthouse 12.6.1, so a newer parent cannot bring these in. Each is
 # scoped to the parent that asks for it, so no other dependent moves with it. A key names the parent without a version:
 # pnpm silently skips an override whose parent version no longer matches, so "parent@1.2.3>child" would lose the fix,

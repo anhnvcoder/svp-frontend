@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { paths } from "@/gen/api";
 import type { TokenSet } from "./session";
 
-// Calls from the BFF to the gateway, typed from services/gateway/openapi.yaml (web/gen/api.d.ts). Every call goes to
+// Calls from the BFF to the gateway, typed from the gateway's released contract (gen/api.d.ts). Every call goes to
 // the one gateway origin of GATEWAY_URL; no caller can pass another host.
 //
 // X-Forwarded-For is passed on exactly as the web server received it, without adding a hop: in the cluster Envoy

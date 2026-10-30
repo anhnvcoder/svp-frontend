@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Test data for the web client's end-to-end tests (web/e2e/*.e2e.ts), run once per `playwright test` by
+# Test data for the web client's end-to-end tests (e2e/*.e2e.ts), run once per `playwright test` by
 # e2e/global-setup.ts against the compose stack of `make up`, through the gateway at 127.0.0.1:8080. On cluster svp
-# (`make k8s-web-e2e`) global-setup passes https://api.svp.localhost:8443 in SVP_E2E_GATEWAY_URL, curl trusts the
+# (`make k8s-e2e`) global-setup passes https://api.svp.localhost:8443 in SVP_E2E_GATEWAY_URL, curl trusts the
 # cluster's CA through CURL_CA_BUNDLE (for the gateway and the storage alike), and SVP_STACK=k3d makes lib.sh reset the
 # limit in the cluster's Valkey, as `make k8s-smoke` does.
 #
@@ -26,8 +26,11 @@ set -euo pipefail
 
 out=${1:?usage: seed.sh OUTPUT_FILE}
 base=${SVP_E2E_GATEWAY_URL:-http://127.0.0.1:8080}
-# shellcheck source=deploy/compose/lib.sh
-source "$(dirname "$0")/../../deploy/compose/lib.sh"
+# The harness of the backend whose stack this run talks to (scripts/backend.sh dir: SVP_BACKEND_DIR or
+# <workspace>/backend).
+backend=$(bash "$(dirname "$0")/../scripts/backend.sh" dir)
+# shellcheck source=/dev/null # deploy/compose/lib.sh of the backend
+source "$backend/deploy/compose/lib.sh"
 
 xss_title='<img src=x onerror=window.__xss=1>'
 min_ready=21

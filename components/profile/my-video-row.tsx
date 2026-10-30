@@ -33,7 +33,7 @@ type MyVideoRowProps = {
   progress: RowProgress | null;
 };
 
-// One of the user's videos (web/design/SVP Mobile.dc.html M33–M34; SVP Desktop.dc.html D09): on a phone the details
+// One of the user's videos (design/SVP Mobile.dc.html M33–M34; SVP Desktop.dc.html D09): on a phone the details
 // stack beside the thumbnail, on a wide screen they sit in the columns of the list's header.
 export function MyVideoRow({
   title,

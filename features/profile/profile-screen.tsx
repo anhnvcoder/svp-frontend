@@ -31,7 +31,7 @@ type ToastState = { id: number; tone: "danger" | "success"; message: string };
 
 const toastMs = 5000;
 
-// Another user's profile (/u/<handle>; web/design/SVP Mobile.dc.html M35–M37, SVP Desktop.dc.html D10): who they are,
+// Another user's profile (/u/<handle>; design/SVP Mobile.dc.html M35–M37, SVP Desktop.dc.html D10): who they are,
 // whether the viewer follows them, and their READY videos in a grid.
 export function ProfileScreen({ profile, initialPage, initialRetryAfterSeconds, mediaOrigin }: ProfileScreenProps) {
   const t = useTranslations("profile");

@@ -28,7 +28,7 @@ import { chromium, type BrowserContext, type Page, type Response } from "@playwr
 // stopped OUT_DIR/clients.json, the counters of every client. OUT_DIR/ready appears once every client is set up. No
 // trace, video, screenshot, HAR, cookie or password goes to any file; the passwords stay in this process.
 //
-// Usage (from web/, NODE_EXTRA_CA_CERTS set to the cluster's CA):
+// Usage (from the repository root, NODE_EXTRA_CA_CERTS set to the cluster's CA):
 //   node e2e/canary/clients.ts WEB_ORIGIN GATEWAY_URL MEDIA_ORIGIN OUT_DIR CLIENTS OLD_TAB
 const usage = "usage: node e2e/canary/clients.ts WEB_ORIGIN GATEWAY_URL MEDIA_ORIGIN OUT_DIR CLIENTS OLD_TAB(0|1)";
 const [webOrigin, gatewayURL, mediaOrigin, outDir, clientsArg, oldTabArg] = process.argv.slice(2);
