@@ -168,11 +168,19 @@ export async function recordUploadScreen(page: Page): Promise<() => Promise<stri
   return () => page.evaluate(() => [...(window as unknown as { __svpUploadScreen: string[] }).__svpUploadScreen]);
 }
 
-// The folder of web/test-results the e2e run writes its own files into (gitignored).
+// The folder of test-results the e2e run writes its own files into (gitignored).
 export const testResultsDir = join(import.meta.dirname, "..", "test-results");
 
+// The checkout of the backend whose stack the run talks to, as scripts/backend.sh prints it (SVP_BACKEND_DIR, or
+// <workspace>/backend): its deploy/compose/lib.sh and .env serve the run. Fails, with the script's message, when that
+// folder is no clone of the backend.
+export function backendDir(): string {
+  const script = join(import.meta.dirname, "..", "scripts", "backend.sh");
+  return execFileSync("bash", [script, "dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }).trim();
+}
+
 // An H.264/AAC MP4 test clip (moving test pattern and a sine tone) of that length and size, made with ffmpeg exactly as
-// make_video of deploy/compose/lib.sh, under test-results/clips. Kept between runs: the same arguments make the same
+// make_video of the backend's deploy/compose/lib.sh, under test-results/clips. Kept between runs: the same arguments make the same
 // clip, and a 60 s 1080p one takes a while to encode.
 export function testClip(seconds: number, size: string): string {
   const dir = join(testResultsDir, "clips");
@@ -271,7 +279,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   registerLimitReset: [
     async ({}, provide) => {
       // Sourcing lib.sh runs reset_register_limit, which exits non-zero when redis-cli fails.
-      const lib = join(import.meta.dirname, "..", "..", "deploy", "compose", "lib.sh");
+      const lib = join(backendDir(), "deploy", "compose", "lib.sh");
       execFileSync("bash", ["-c", 'source "$1"', "bash", lib], { stdio: ["ignore", "inherit", "inherit"] });
       await provide();
     },

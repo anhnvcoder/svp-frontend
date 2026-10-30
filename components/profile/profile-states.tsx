@@ -7,7 +7,7 @@ import { Button, Skeleton } from "@/components/ui";
 import { focusRing } from "@/components/ui/styles";
 import { cn } from "@/lib/cn";
 
-// The profile pages' states without a video (web/design/SVP Mobile.dc.html M37): loading, empty, a page that failed,
+// The profile pages' states without a video (design/SVP Mobile.dc.html M37): loading, empty, a page that failed,
 // and the profile 404.
 
 function Message({

@@ -13,7 +13,7 @@ type AuthorLineProps = {
   publishedAgo: string | null;
 };
 
-// The author's name, @handle and the video's age above the title, over the video (web/design/FeedMobile.dc.html M01).
+// The author's name, @handle and the video's age above the title, over the video (design/FeedMobile.dc.html M01).
 // The name is the user's own text and is rendered as React text only (WEB-1); <bdi> keeps any right-to-left text in it
 // from reordering the handle and the age after it (WEB-18).
 export function AuthorLine({ author, href, publishedAgo }: AuthorLineProps) {

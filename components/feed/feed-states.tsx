@@ -7,7 +7,7 @@ import { Button, Skeleton } from "@/components/ui";
 import { focusRing } from "@/components/ui/styles";
 import { cn } from "@/lib/cn";
 
-// The feed's screens without a video (web/design/FeedMobile.dc.html: loading, empty-following, end, offline).
+// The feed's screens without a video (design/FeedMobile.dc.html: loading, empty-following, end, offline).
 
 function Message({
   icon: Icon,

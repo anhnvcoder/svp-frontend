@@ -1,5 +1,5 @@
 /*
- * Role tokens of the design (web/design/svp-tokens.css), copied one to one into Tailwind's theme: `bg-surface`,
+ * Role tokens of the design (design/svp-tokens.css), copied one to one into Tailwind's theme: `bg-surface`,
  * `text-muted`, `border-border-strong`, `rounded-md`, `shadow-raised`. Dark is the default; an ancestor with
  * data-theme="light" switches every color below. Tailwind's own palette is removed (`--color-*: initial`), so a
  * component can only use a role color, never a fixed one.

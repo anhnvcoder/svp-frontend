@@ -11,8 +11,8 @@ const withNextIntl = createNextIntlPlugin({
   experimental: { messages: { path: "./messages", format: "json", locales, precompile: true } },
 });
 
-// The build id of the image (build arg SVP_BUILD_ID of deploy/docker/web.Dockerfile): the first 12 hex digits of the
-// commit in CI, a hash of the build context on the dev path of k3d. Empty for `next build` of make web-check, next dev
+// The build id of the image (build arg SVP_BUILD_ID of the Dockerfile): the first 12 hex digits of the
+// commit in CI, a hash of the build context on the dev path of k3d. Empty for `next build` of make check, next dev
 // and compose, which then keep Next's own random build id.
 const buildId = process.env.SVP_BUILD_ID || undefined;
 
@@ -40,7 +40,7 @@ const nextConfig: NextConfig = {
   // forwarded-parse is loaded by the http instrumentation only through such a require, with no plain import anywhere,
   // so no trace finds it; the require resolves it from the package's own directory in node_modules/.pnpm, where pnpm
   // links the package's dependencies. Without this copy the instrumentation hook fails to load and every route answers
-  // 500 (make web-check starts the standalone server to catch that).
+  // 500 (make check starts the standalone server to catch that).
   outputFileTracingIncludes: {
     "/*": ["./node_modules/.pnpm/@opentelemetry+instrumentation-http@*/node_modules/forwarded-parse/**"],
   },
@@ -52,7 +52,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Maps of the browser bundle, so GlitchTip can show a browser error's stack in the source. They never reach a
   // browser: the image's build moves them out of .next/static and drops the sourceMappingURL comments, and they go to
-  // GlitchTip only (make web-sourcemaps). next build of make web-check writes them too, so the bundle budgets measure
+  // GlitchTip only (make sourcemaps). next build of make check writes them too, so the bundle budgets measure
   // the chunks the image serves.
   productionBrowserSourceMaps: true,
   // A debug id in every chunk and its map (globalThis._debugIds at run time): a browser report names the id of each

@@ -15,7 +15,7 @@ import {
 import { seed } from "./seed";
 import { stack } from "./stack";
 
-// Screenshots of the screens of the web client for a person to compare with the design frames of web/design (SVP
+// Screenshots of the screens of the web client for a person to compare with the design frames of design/ (SVP
 // Mobile, SVP Desktop): each screen full page at a phone and a desktop size, in Vietnamese, saved as
 // <SVP_E2E_EVIDENCE>/screens/<browser>/<frame>-<name>-<mobile|desktop>.png. playwright.config.ts runs this file only
 // when SVP_E2E_EVIDENCE is set. The password field is never switched to plain text, so no password shows; the only

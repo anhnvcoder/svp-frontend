@@ -1,4 +1,4 @@
-# Build context of deploy/docker/web.Dockerfile is web/: the image is built from the sources and the lockfile only.
+# Build context of the Dockerfile is the repository's root: the image is built from the sources and the lockfile only.
 # Local installs and build output would replace what the image installs and builds itself.
 node_modules
 .next
@@ -12,3 +12,20 @@ coverage
 design
 # Local configuration and secrets never enter the image (next build does not read them either).
 .env*
+# Git's data, and the checkout of the backend whose CI scripts and pinned tools this repository runs: neither is part
+# of the app.
+.git
+.backend
+# Repository tooling the build does not read: CI, dependency updates, the scan's ignore file, the pins of the backend
+# and of the API contract, the scripts that read them, the Makefile and the documents.
+.github
+.gitignore
+renovate.json
+.trivyignore.yaml
+.backend-commit
+api
+scripts
+Makefile
+README.md
+CLAUDE.md
+AGENTS.md

@@ -22,10 +22,10 @@ export interface ServerEnv {
   // Error tracker (GlitchTip) the server reports to, its own errors and the browser's; null turns reporting off, so
   // compose and tests run without a tracker.
   sentryDsn: string | null;
-  // `environment` of every reported error: local (compose, `make web-dev`), k3d.
+  // `environment` of every reported error: local (compose, `make dev`), k3d.
   sentryEnvironment: string;
   // Id of the image's build (a commit or a content hash, not a secret): the `release` of reported errors. Undefined
-  // for a build without one (compose, `make web-check`).
+  // for a build without one (compose, `make check`).
   buildId: string | undefined;
 }
 
@@ -77,7 +77,7 @@ const schema = z.object({
       return false;
     }
   }, "must be a redis:// or rediss:// URL"),
-  // Plain http is for loopback only (compose and `make web-dev`), where nobody else is on the wire. Zod runs every
+  // Plain http is for loopback only (compose and `make dev`), where nobody else is on the wire. Zod runs every
   // refine even when an earlier one failed: a value that is not an origin passes here, keeping `new URL` from throwing
   // (a TypeError holding the value, out of safeParse) and leaving the error to the origin check.
   APP_ORIGIN: origin.refine(

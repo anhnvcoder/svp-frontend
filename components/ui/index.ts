@@ -1,4 +1,4 @@
-// Design-system primitives (web/design/SVP Design System.dc.html): they take props only, never call an API, and use
+// Design-system primitives (design/SVP Design System.dc.html): they take props only, never call an API, and use
 // role colors only.
 export { Avatar, avatarHue } from "./avatar";
 export { Button } from "./button";

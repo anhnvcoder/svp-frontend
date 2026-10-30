@@ -1,5 +1,5 @@
-// The stack an end-to-end run talks to, from SVP_STACK: `compose` (default, `make web-e2e`) or `k3d` (`make
-// k8s-web-e2e`). Every origin, and the session cookie's form, comes from here, so no spec names one stack's address.
+// The stack an end-to-end run talks to, from SVP_STACK: `compose` (default, `make e2e`) or `k3d` (`make
+// k8s-e2e`). Every origin, and the session cookie's form, comes from here, so no spec names one stack's address.
 //
 // compose: the `web` container at http://localhost:3001, the gateway and the object store (service s3) on their
 // loopback ports. Plain http, so the session cookie has no prefix and no Secure.

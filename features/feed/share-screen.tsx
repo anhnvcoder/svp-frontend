@@ -45,7 +45,7 @@ const toastMs = 5000;
 const headerLink =
   "inline-flex min-h-11 items-center rounded-md px-3 text-[15px] font-semibold text-foreground hover:bg-surface-hover hover:text-foreground md:px-4.5";
 
-// The share page /v/{id} (web/design/SVP Mobile.dc.html
+// The share page /v/{id} (design/SVP Mobile.dc.html
 // M38, SVP Desktop.dc.html D04): one video played by the feed's player pool, its author, title and counts. A guest's
 // like and follow ask them to log in and come back here, and their watching records no view; a logged-in user likes,
 // follows and records a view after 2 s of playback as in the feed.

@@ -1,4 +1,4 @@
-// Which item of the navigation is the current page (web/design/BottomNav.dc.html, SidebarDesktop.dc.html). Profile is
+// Which item of the navigation is the current page (design/BottomNav.dc.html, SidebarDesktop.dc.html). Profile is
 // the user's own profile, /me; another user's profile at /u/<handle> marks nothing, as in the design (M35–M37).
 export type NavItem = "home" | "upload" | "profile";
 

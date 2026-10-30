@@ -1,13 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { authedTest, expect, feedItem, testResultsDir } from "./fixtures";
+import { authedTest, backendDir, expect, feedItem, testResultsDir } from "./fixtures";
 import { stack } from "./stack";
 
 // A browser error of the real bundle reaches GlitchTip with its stack mapped to the source.
 // Only with SVP_E2E_GLITCHTIP=1
 // (playwright.config.ts), on a stack whose GlitchTip holds the source maps of the build the web serves: compose `make
-// up OBS=lgtm` then `make web-sourcemaps`, or k3d `make k8s-web-sourcemaps` then `make k8s-web-e2e`.
+// up OBS=lgtm` then `make sourcemaps`, or k3d `make k8s-sourcemaps` then `make k8s-e2e`.
 //
 // The error comes from no debug path of the app: the next page of Explore is answered with one item whose title is an
 // object instead of text, and React, rendering that title, throws to the error boundary of app/error.tsx, which reports
@@ -16,7 +16,7 @@ import { stack } from "./stack";
 // node_modules of the web project.
 //
 // The GlitchTip API is read with the read-only token (event:read, project:read), never printed: compose takes
-// SENTRY_AUTH_TOKEN of .env (read with deploy/observability/glitchtip/dotenv.sh), k3d gets the token of Secret
+// SENTRY_AUTH_TOKEN of the backend's .env (read with its deploy/observability/glitchtip/dotenv.sh), k3d gets the token of Secret
 // svp-obs/glitchtip-api from e2e/k3d-e2e.sh in SVP_E2E_GLITCHTIP_TOKEN. GlitchTip is on 127.0.0.1:8000 on both:
 // compose publishes it there, e2e/k3d-e2e.sh opens a port-forward there for the run. Each browser's event, once found,
 // goes to test-results/glitchtip-<project>.json (with the environment GlitchTip holds for it), which `make
@@ -29,7 +29,7 @@ const projectPath = "/api/0/projects/svp/svp";
 const eventTimeoutMs = 180_000;
 
 // Frames GlitchTip mapped to a file of the web project: Turbopack names the sources of its maps
-// turbopack:///[project]/<path in web/>. A frame left unmapped keeps the chunk's URL under /_next/static/.
+// turbopack:///[project]/<path in this repository>. A frame left unmapped keeps the chunk's URL under /_next/static/.
 const webSource = /(^|\/)\[project\]\/|^web\//;
 
 function apiToken(): string {
@@ -38,9 +38,9 @@ function apiToken(): string {
     return fromRun;
   }
   if (stack.name === "k3d") {
-    throw new Error("SVP_E2E_GLITCHTIP_TOKEN is not set: run make k8s-web-e2e, which reads it from the cluster");
+    throw new Error("SVP_E2E_GLITCHTIP_TOKEN is not set: run make k8s-e2e, which reads it from the cluster");
   }
-  const repo = join(import.meta.dirname, "..", "..");
+  const repo = backendDir();
   const token = execFileSync(
     "bash",
     [
@@ -194,7 +194,7 @@ authedTest(
         unmapped
           ? `GlitchTip event ${unmapped.eventId} (issue ${unmapped.issueId}) has no frame mapped to the web's source ` +
               `(frames ${unmapped.sources.slice(0, 3).join(", ")}): upload the source maps of the build the web ` +
-              `serves first (${stack.name === "k3d" ? "make k8s-web-sourcemaps" : "make web-sourcemaps"}), then run again`
+              `serves first (${stack.name === "k3d" ? "make k8s-sourcemaps" : "make sourcemaps"}), then run again`
           : `no GlitchTip event of this ${reported.name} report within ${eventTimeoutMs / 1000} s: check the web's ` +
               `SENTRY_DSN and GlitchTip's worker; the same error on the same web process within 30 s is dropped by its ` +
               `per-fingerprint limit, so run again after 30 s`,

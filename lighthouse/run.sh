@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# `make web-lighthouse`, run from web/ on the compose stack of `make up`: one Lighthouse run (@lhci/cli) of each of two
-# pages in Playwright's Chromium, with Lighthouse's default mobile settings (an emulated phone, simulated slow 4G and a
-# 4x CPU slowdown; Lighthouse has no preset named mobile, its desktop preset is the other one):
+# `make lighthouse`, run from the repository root on the backend's compose stack (`make up` there): one Lighthouse run
+# (@lhci/cli) of each of two pages in Playwright's Chromium, with Lighthouse's default mobile settings (an emulated
+# phone, simulated slow 4G and a 4x CPU slowdown; Lighthouse has no preset named mobile, its desktop preset is the other
+# one):
 # - the feed, /, logged in: a fresh user, registered at the gateway, logs in through the web's login page
 #   (lighthouse/session.ts) and Lighthouse sends that session cookie with every request (extraHeaders);
 # - /v/{id} of a READY video, logged out: the newest video of explore, or, when explore is empty, a 4 s test clip the
@@ -16,8 +17,9 @@
 # records (configSettings.extraHeaders) is replaced before the reports are written, the run fails when a cookie value
 # is still found in a result or a report, and the session is logged out at exit so the cookie stops working.
 #
-# LOCAL LAB ONLY: sourcing deploy/compose/lib.sh deletes the gateway's register rate limit keys (svp:gw:rl:register:*)
-# in Redis db 10 on 127.0.0.1:6379 with SCAN + DEL, as e2e/seed.sh and `make smoke` do. Never point it at a shared stack.
+# LOCAL LAB ONLY: sourcing deploy/compose/lib.sh of the backend deletes the gateway's register rate limit keys
+# (svp:gw:rl:register:*) in Redis db 10 on 127.0.0.1:6379 with SCAN + DEL, as e2e/seed.sh and the backend's
+# `make smoke` do. Never point it at a shared stack.
 set -euo pipefail
 
 base=http://127.0.0.1:8080
@@ -28,8 +30,11 @@ lhci=$web_dir/node_modules/.bin/lhci
 reports=$web_dir/test-results/lighthouse
 # lhci keeps its results in .lighthouseci of the folder it runs in; that is this one, inside the gitignored reports.
 lhci_dir=$reports/.lighthouseci
-# shellcheck source=deploy/compose/lib.sh
-source "$(dirname "$0")/../../deploy/compose/lib.sh"
+# The harness of the backend whose stack this run talks to (scripts/backend.sh dir: SVP_BACKEND_DIR or
+# <workspace>/backend).
+backend=$(bash "$web_dir/scripts/backend.sh" dir)
+# shellcheck source=/dev/null # deploy/compose/lib.sh of the backend
+source "$backend/deploy/compose/lib.sh"
 
 # Replaces the EXIT trap of lib.sh: logs the session out (POST /logout with the web's own origin, as its CSRF check
 # wants), so the cookie Lighthouse used no longer works, then removes lhci's results (the reports are the record) and
@@ -47,9 +52,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-[[ -x $lhci ]] || fail "lhci not found in web/node_modules (make web-install)"
+[[ -x $lhci ]] || fail "lhci not found in node_modules (make install)"
 chrome=$(node --input-type=module -e 'import { chromium } from "@playwright/test"; console.log(chromium.executablePath())')
-[[ -x $chrome ]] || fail "Playwright's Chromium not found (in web/: pnpm exec playwright install chromium)"
+[[ -x $chrome ]] || fail "Playwright's Chromium not found (pnpm exec playwright install chromium)"
 
 wait_gateway_ready 60
 new_user viewer
@@ -115,6 +120,6 @@ jq -rs --arg origin "$web_url" '.[] |
     if . == null then "none" else "\(.selector): \(.snippet)" end)",
   "    console errors: \(.audits["errors-in-console"].details.items // [] | length)",
   ((.audits["errors-in-console"].details.items // [])[] | "      \(.source): \(.description)")' "${results[@]}"
-echo "  reports in web/test-results/lighthouse/ (manifest.json lists them)"
+echo "  reports in test-results/lighthouse/ (manifest.json lists them)"
 
 "$lhci" assert --config="$rc"

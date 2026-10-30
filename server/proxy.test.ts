@@ -9,7 +9,7 @@ const composeEnv = {
   UPLOAD_ORIGIN: "http://127.0.0.1:9000",
 };
 
-// Tests of web/proxy.ts, kept here because the unit run only looks in the source folders. The environment is read once
+// Tests of proxy.ts, kept here because the unit run only looks in the source folders. The environment is read once
 // per module instance, so every test loads proxy.ts afresh with its own.
 async function loadProxy(env: Record<string, string> = composeEnv, nodeEnv = "production") {
   vi.resetModules();

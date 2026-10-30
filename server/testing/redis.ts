@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { createClient } from "redis";
 import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
 
-// Test access to the local Redis named by SVP_TEST_REDIS_URL (`make test` and `make web-check` set it). The local Redis
+// Test access to the local Redis named by SVP_TEST_REDIS_URL (`make test` and `make check` set it). The local Redis
 // is shared with other projects, so every URL but db 15 of 127.0.0.1:6379 (or localhost:6379) is refused before a
 // command is sent, each test gets a random key prefix of its own, and only the keys under that prefix are deleted
 // afterwards: never FLUSHDB, not even on db 15.

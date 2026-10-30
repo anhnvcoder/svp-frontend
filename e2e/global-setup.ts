@@ -12,7 +12,7 @@ export default function globalSetup() {
   // On k3d, curl (the seed) and Node (the specs' fetch) must trust the cluster's CA, and Node reads its variable only
   // as it starts: the run goes through e2e/k3d-e2e.sh, which sets both.
   if (stack.name === "k3d" && !(process.env.CURL_CA_BUNDLE && process.env.NODE_EXTRA_CA_CERTS)) {
-    throw new Error("SVP_STACK=k3d needs CURL_CA_BUNDLE and NODE_EXTRA_CA_CERTS (.k8s/ca.crt): run make k8s-web-e2e");
+    throw new Error("SVP_STACK=k3d needs CURL_CA_BUNDLE and NODE_EXTRA_CA_CERTS (.k8s/ca.crt): run make k8s-e2e");
   }
   const dir = mkdtempSync(join(tmpdir(), "svp-e2e-"));
   try {

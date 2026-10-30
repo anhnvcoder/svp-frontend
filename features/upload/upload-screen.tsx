@@ -79,7 +79,7 @@ function isActive(upload: Upload): boolean {
   );
 }
 
-// The upload page (web/design/UploadFlow.dc.html): pick
+// The upload page (design/UploadFlow.dc.html): pick
 // and check a file, give it a title, then follow the upload of the tab's store and the processing that follows.
 export function UploadScreen({ uploadOrigin }: UploadScreenProps) {
   const t = useTranslations("upload");

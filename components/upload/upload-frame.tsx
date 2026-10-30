@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { focusRing } from "@/components/ui/styles";
 import { cn } from "@/lib/cn";
 
-// Frame of the upload flow (web/design/UploadFlow.dc.html): a close button, the title, the three steps, then the step's
+// Frame of the upload flow (design/UploadFlow.dc.html): a close button, the title, the three steps, then the step's
 // content. Full screen on a phone; a 560 px card in the middle of the page on a wide screen (D05, D06).
 
 export type UploadStep = 1 | 2 | 3;

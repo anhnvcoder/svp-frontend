@@ -1,0 +1,531 @@
+# The web image of this repository, ghcr.io/anhnvcoder/svp-web/web: built at every run from the whole tree, on native
+# amd64 and arm64 runners; the local image scanned with trivy, and its SBOM with grype, blocking secrets and CRITICAL
+# vulnerabilities BEFORE anything is pushed; exactly what was scanned pushed; a multi-arch index joined, signed keyless
+# with cosign, and attested with the SBOM (syft), the scan result and the build provenance; the browser source maps of
+# each leg pushed beside it as ghcr.io/anhnvcoder/svp-web/web-sourcemaps:<arch>-<manifest hex>; the signed digest
+# promoted to stg through a pull request in the deployment repository svp-gitops; released digests rescanned daily.
+#
+# The logic is the backend's deploy/ci/*.sh, run from .backend/, the backend checked out at the commit of
+# .backend-commit (make backend-checkout), the one place this repository pins it. SVP_CODE_ROOT (below) tells those
+# scripts that the code built and released is this checkout, not the backend's: they take the release source whose
+# repository is this one (deploy/helm/svp-policy/files/sources.json of .backend/), push under its prefix, sign with its
+# identity, and refuse to run when HEAD here is not the commit of the run. This file wires jobs, permissions and
+# artifacts.
+#
+# Security rules of this file:
+#   - permissions: {} here, and each job declares only what it needs. Every job that runs on a pull request has only
+#     contents: read: a pull request runs its own code (and the scripts of the backend commit it pins) before anyone
+#     has read them. Jobs that can write (packages, id-token, security-events) run only on main, outside pull_request.
+#   - Only job promote writes to another repository: environment promote (deployment branch main only) holds the key
+#     of the GitHub App svp-web-promoter, installed on svp-gitops alone, and the job turns it into a token of one hour
+#     for svp-gitops with contents and pull-requests write only, revoked when the job ends. No job of a pull request
+#     names that environment or reads a secret.
+#   - Every action is pinned to a full commit SHA (the tag in the comment is for people and Renovate); only GitHub's
+#     own actions and sigstore/cosign-installer.
+#   - Untrusted values (inputs, branch names, matrix values from plan) reach scripts through env:, never ${{ }} inside
+#     run:.
+#   - actions/checkout never keeps the token in .git/config: no job pushes to this repository.
+name: images
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Daily rescan, off the top of the hour (busy for GitHub's scheduler) and not at the backend's minute. Kyverno
+    # accepts an attestation for 72 hours, so two missed days are still fine.
+    - cron: "47 1 * * *"
+  workflow_dispatch:
+    inputs:
+      services:
+        description: "Build again at this commit: 'all' or 'web' (this repository releases web only)"
+        type: string
+        default: ""
+      rescan:
+        description: "Rescan the released web digests now and replace their vuln attestations"
+        type: boolean
+        default: false
+
+permissions: {}
+
+# Every script of .backend/ reads the code it builds, labels and releases from here.
+env:
+  SVP_CODE_ROOT: ${{ github.workspace }}
+
+# One group per ref and mode: the scheduled rescan also runs on refs/heads/main, and sharing the build's group would
+# let it replace a queued push run. A run on main is never cancelled: cancelling one half-way through signing would
+# leave a pushed digest without its signature. Runs on main follow each other, so a later run never promotes before
+# an earlier one, and promote.sh never moves stg back to an older commit either way.
+concurrency:
+  group: images-${{ github.ref }}-${{ (github.event_name == 'schedule' || inputs.rescan) && 'rescan' || 'build' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plan:
+    # What this run does (deploy/ci/plan.sh): mode (build or rescan), images, matrix of legs. In this tree every build
+    # builds web, with no base to compare with: the whole tree is its code. Every job after it starts its if: with a
+    # status function (!cancelled() && ...): an if: without one gets an implicit success(), false once a job up the
+    # needs chain was skipped.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      images: ${{ steps.plan.outputs.images }}
+      legs: ${{ steps.plan.outputs.legs }}
+      has_images: ${{ steps.plan.outputs.has_images }}
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The backend at .backend-commit, anonymously over HTTPS: no token, no secret.
+      - &backend
+        run: make backend-checkout
+      - id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          INPUT_SERVICES: ${{ inputs.services }}
+          INPUT_RESCAN: ${{ inputs.rescan }}
+        run: .backend/deploy/ci/plan.sh
+
+  build-nopush:
+    # Pull requests and refs other than main: build, scan and gate exactly like main, push nothing.
+    # Findings go to the job summary only (no Security tab upload from a pull request).
+    needs: plan
+    if: >-
+      ${{ !cancelled() && needs.plan.result == 'success'
+      && needs.plan.outputs.mode == 'build' && needs.plan.outputs.has_images == 'true'
+      && (github.event_name == 'pull_request' || github.ref != 'refs/heads/main') }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.legs) }}
+    steps:
+      - *checkout
+      - *backend
+      - &day
+        id: day
+        run: echo "day=$(date -u +%F)" >>"$GITHUB_OUTPUT"
+      - &trivy-cache
+        # The trivy DB, one cache entry per day (trivy's advice against download limits); trivy still downloads a newer
+        # DB when the cached one is stale. A pull request's cache stays in its own ref and never replaces main's.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/trivy-cache/db
+          key: trivy-db-${{ steps.day.outputs.day }}
+          restore-keys: trivy-db-
+      - &grype-cache
+        # The grype DB, the same way: one entry per day (about 480 MB as a cache entry, of the repository's 10 GB
+        # quota). grype checks for a newer DB on every scan that has not checked in the last two hours, and refuses
+        # one built more than five days ago.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/grype-cache
+          key: grype-db-${{ steps.day.outputs.day }}
+          restore-keys: grype-db-
+      - &build-scan-gate
+        name: Build, scan and gate
+        env:
+          IMAGE: ${{ matrix.image }}
+          ARCH: ${{ matrix.arch }}
+          SVP_TRIVY_CACHE: ${{ runner.temp }}/trivy-cache
+          SVP_GRYPE_CACHE: ${{ runner.temp }}/grype-cache
+        run: .backend/deploy/ci/build-image.sh "$IMAGE" "$ARCH" "$RUNNER_TEMP/leg"
+
+  build:
+    # main: the same steps, then push exactly the scanned image (by config digest) and hand the leg to the jobs after
+    # it as an artifact. The gate step has no always() and no continue-on-error: a blocked image stops the leg before
+    # the push. The cache is the only shared state, and no job holding id-token uses it.
+    # Each leg then hands over the browser bundle's source maps, exported by build-image.sh from the image's own build
+    # cache: as artifact web-sourcemaps-<arch> of this run (the tree _next/static/... of chunks and maps, and the file
+    # image-digest, the manifest digest this leg pushed), and as the image web-sourcemaps:<arch>-<hex of that digest>,
+    # which the backend's deployment check (scenario gitops of its verify workflow) pulls anonymously by the manifest a
+    # cluster runs, with no token for this repository's artifacts. Only pushed legs have a digest, so pull requests export and check the
+    # maps in build-image.sh but hand over none.
+    needs: plan
+    if: >-
+      ${{ !cancelled() && needs.plan.result == 'success'
+      && needs.plan.outputs.mode == 'build' && needs.plan.outputs.has_images == 'true'
+      && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.legs) }}
+    steps:
+      - *checkout
+      - *backend
+      - *day
+      - *trivy-cache
+      - *grype-cache
+      - *build-scan-gate
+      - name: Push the scanned image, compare its config digest
+        env:
+          IMAGE: ${{ matrix.image }}
+          ARCH: ${{ matrix.arch }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          .backend/deploy/ci/push-image.sh "$IMAGE" "$ARCH" "$RUNNER_TEMP/leg"
+      - name: Pack the web source maps with the pushed manifest digest
+        run: |
+          .backend/deploy/ci/build-image.sh --sourcemaps-artifact "$RUNNER_TEMP/leg" "$RUNNER_TEMP/leg/digest" \
+            "$RUNNER_TEMP/web-sourcemaps"
+      - name: Hand over the web source maps
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-sourcemaps-${{ matrix.arch }}
+          path: ${{ runner.temp }}/web-sourcemaps
+          if-no-files-found: error
+      # A tag already pushed with the same tree is left alone (a leg run again), one with another tree fails: nothing
+      # is overwritten. docker login of the push step above still holds on this runner.
+      - name: Push the web source maps as an image of their own
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: .backend/deploy/ci/sourcemaps-image.sh push "$ARCH" "$RUNNER_TEMP/web-sourcemaps"
+      # The leg goes to merge only after its source maps are pushed: merge only checks that both leg artifacts exist,
+      # so a leg handed over first would be released without the maps image the deployment check pulls.
+      - name: Hand the leg over (manifest digest, scan report, SBOM, scan times)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: leg-${{ matrix.image }}-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/leg/platform
+            ${{ runner.temp }}/leg/repository
+            ${{ runner.temp }}/leg/digest
+            ${{ runner.temp }}/leg/config-digest
+            ${{ runner.temp }}/leg/trivy.json
+            ${{ runner.temp }}/leg/sbom.spdx.json
+            ${{ runner.temp }}/leg/scan-started
+            ${{ runner.temp }}/leg/scan-finished
+            ${{ runner.temp }}/leg/db-updated-at
+          if-no-files-found: error
+          retention-days: 7
+      - name: Keep the SARIF for the Security tab, blocked or not
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sarif-${{ matrix.image }}-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/leg/trivy.sarif
+            ${{ runner.temp }}/leg/grype.sarif
+          if-no-files-found: ignore
+          retention-days: 7
+
+  merge:
+    # One index per image from its two scanned manifests. An image with a failed leg has no two artifacts and fails
+    # here: no index, no signature, no release.
+    needs: [plan, build]
+    if: >-
+      ${{ !cancelled() && needs.plan.outputs.mode == 'build' && needs.plan.outputs.has_images == 'true'
+      && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
+    steps:
+      - *checkout
+      - *backend
+      - &download-legs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: leg-${{ matrix.image }}-*
+          path: ${{ runner.temp }}/legs
+      - name: Join the two manifests into one index
+        env:
+          IMAGE: ${{ matrix.image }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -d "$RUNNER_TEMP/legs/leg-$IMAGE-amd64" ] || [ ! -d "$RUNNER_TEMP/legs/leg-$IMAGE-arm64" ]; then
+            echo "::error::$IMAGE: a leg did not pass (see the build job); no index, no signature, no release"
+            exit 1
+          fi
+          printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          .backend/deploy/ci/merge-index.sh "$IMAGE" "$RUNNER_TEMP/legs/leg-$IMAGE-amd64" \
+            "$RUNNER_TEMP/legs/leg-$IMAGE-arm64" "$RUNNER_TEMP/index"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: index-${{ matrix.image }}
+          path: |
+            ${{ runner.temp }}/index/repository
+            ${{ runner.temp }}/index/tag
+            ${{ runner.temp }}/index/digest
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    # Keyless signature on the index digest, SBOM attestation on each manifest, vuln attestation (both scans) and build
+    # provenance (SLSA v1: workflow, ref, commit and attempt of this run, read from the run's own context) on the index.
+    # sign-image.sh refuses to sign unless the run's workflow is the subject of this repository's release source
+    # (images.yml on refs/heads/main), the identity Kyverno admits for web from here. The only build-path job with
+    # id-token: write; it uses no cache. Its artifact release-<image> (repository, tag, digest of the signed index) is
+    # what promote writes to envs/stg/images/ of svp-gitops.
+    needs: [plan, merge]
+    if: >-
+      ${{ !cancelled() && needs.plan.outputs.mode == 'build' && needs.plan.outputs.has_images == 'true'
+      && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
+    steps:
+      - *checkout
+      - *backend
+      - *download-legs
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: index-${{ matrix.image }}
+          path: ${{ runner.temp }}/index
+      - &cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+      - name: Sign and attest
+        env:
+          IMAGE: ${{ matrix.image }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          .backend/deploy/ci/sign-image.sh "$RUNNER_TEMP/index" \
+            "$RUNNER_TEMP/legs/leg-$IMAGE-amd64" "$RUNNER_TEMP/legs/leg-$IMAGE-arm64"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.image }}
+          path: |
+            ${{ runner.temp }}/index/repository
+            ${{ runner.temp }}/index/tag
+            ${{ runner.temp }}/index/digest
+          if-no-files-found: error
+          retention-days: 7
+
+  promote:
+    # Promotes web to stg in svp-gitops (deploy/ci/promote.sh --source web): rebuilds the branch bot/promote-stg-web
+    # there from its main with the release this run signed, unless stg already runs a newer one (commits of main of
+    # this repository compared by ancestry, never by time), writes envs/stg/images/web.yaml only (never the charts,
+    # which are the backend's), opens or updates its pull request and turns on auto-merge; svp-gitops merges it once
+    # its check gitops-ok is green, with no review (no code owner owns envs/stg/). The first release of this repository
+    # takes web.yaml over from the backend's release once (a line "takeover" says so); later ones compare with it.
+    # Runs when signing failed too, and then promotes nothing new. The token is the app's, for svp-gitops alone;
+    # GITHUB_TOKEN only reads this repository. No id-token, no packages.
+    needs: [plan, sign]
+    if: >-
+      ${{ !cancelled() && needs.plan.outputs.mode == 'build' && needs.plan.outputs.has_images == 'true'
+      && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: promote
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history: a release's commit is compared by ancestry with main's.
+          fetch-depth: 0
+          persist-credentials: false
+      - *backend
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: ${{ runner.temp }}/releases
+      - id: app
+        # Revoked when the job ends. Only the repository svp-gitops and only the two permissions the pull request needs.
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.SVP_WEB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SVP_WEB_APP_PRIVATE_KEY }}
+          owner: anhnvcoder
+          repositories: svp-gitops
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Rebuild bot/promote-stg-web in svp-gitops, open or update its pull request, turn on auto-merge
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: .backend/deploy/ci/promote.sh --source web "$RUNNER_TEMP/releases"
+
+  rescan:
+    # Daily (and on dispatch rescan=true): every web digest of this repository that svp-gitops names (envs/*/images/ at
+    # its main and at the open pull request bot/promote-stg-web) is scanned again, manifest by manifest, and its vuln
+    # attestation replaced with the real result, signed with this workflow's identity; a CRITICAL is recorded first,
+    # then fails the job, which mails the owner; a secret fails the job before anything is attested
+    # (deploy/ci/rescan.sh). Releases of the backend are left to the backend's own rescan: --source web makes the script
+    # check that this run is of this repository's release source and its signing workflow before it reads anything, so
+    # it never replaces an attestation of another repository's release. svp-gitops is cloned anonymously and its files
+    # read as data, never run; GITHUB_TOKEN only asks whether the promote pull request is open (a read of a public
+    # repository). No cache: the job holds id-token.
+    needs: plan
+    if: >-
+      ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.mode == 'rescan'
+      && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      SVP_GITOPS_DIR: ${{ github.workspace }}/.backend/.gitops/svp-gitops
+    steps:
+      - *checkout
+      - *backend
+      - *cosign
+      - run: make -C .backend gitops-clone
+      - name: Rescan and attest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          SVP_TRIVY_CACHE: ${{ runner.temp }}/trivy-cache
+        run: |
+          printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          .backend/deploy/ci/rescan.sh run --source web "$RUNNER_TEMP/rescan" "$SVP_GITOPS_DIR"
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sarif-rescan
+          path: ${{ runner.temp }}/rescan/sarif/*.sarif
+          if-no-files-found: ignore
+          retention-days: 7
+
+  sarif:
+    # Uploads the SARIF of main's builds and rescans to the Security tab, one upload per tool (upload-sarif merges the
+    # files it is given into one log, and GitHub rejects a log with more than 20 runs). The only job with
+    # security-events: write; it runs no code of the repository. A report, not a check: not in images-ok (a failed
+    # upload still turns the run red).
+    needs: [plan, build, rescan]
+    if: >-
+      ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      && (needs.plan.outputs.mode == 'rescan'
+      || (needs.plan.outputs.mode == 'build' && needs.plan.outputs.has_images == 'true')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: sarif-*
+          path: ${{ runner.temp }}/sarif
+      - id: split
+        # Sorts the files into one directory per tool and counts the runs with the runner's jq, so that a log over the
+        # limit stops here with its count instead of GitHub's rejection. A tool over the limit is not uploaded; the
+        # other one still is.
+        run: |
+          mkdir -p "$RUNNER_TEMP/sarif-trivy" "$RUNNER_TEMP/sarif-grype"
+          while IFS= read -r -d '' f; do
+            # download-artifact unpacks a lone artifact straight into the path, with no folder of its name: a
+            # rescan uploads only sarif-rescan, so its files land directly in sarif/ and are trivy's.
+            case "$f" in
+              */grype.sarif) tool=grype ;;
+              */trivy.sarif | */sarif-rescan/*.sarif | "$RUNNER_TEMP"/sarif/*-*.sarif) tool=trivy ;;
+              *)
+                echo "::error::Unexpected SARIF file ${f#"$RUNNER_TEMP"/}"
+                exit 1
+                ;;
+            esac
+            dir=${f%/*}
+            cp "$f" "$RUNNER_TEMP/sarif-$tool/${dir##*/}-${f##*/}"
+          done < <(find "$RUNNER_TEMP/sarif" -name '*.sarif' -print0 2>/dev/null)
+          over=0
+          for tool in trivy grype; do
+            files=("$RUNNER_TEMP/sarif-$tool"/*.sarif)
+            if [ ! -e "${files[0]}" ]; then
+              echo "No $tool SARIF to upload (no leg reached its scan)."
+              continue
+            fi
+            runs=$(jq -s 'map(.runs | length) | add' "${files[@]}")
+            if [ "$runs" -gt 20 ]; then
+              echo "::error::$runs $tool SARIF runs in ${#files[@]} files: GitHub rejects an upload with more than 20 runs"
+              over=1
+              continue
+            fi
+            echo "$tool: $runs SARIF runs in ${#files[@]} files"
+            echo "$tool=true" >>"$GITHUB_OUTPUT"
+          done
+          exit "$over"
+      - name: Upload the trivy SARIF
+        if: ${{ !cancelled() && steps.split.outputs.trivy == 'true' }}
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: ${{ runner.temp }}/sarif-trivy
+      - name: Upload the grype SARIF
+        if: ${{ !cancelled() && steps.split.outputs.grype == 'true' }}
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: ${{ runner.temp }}/sarif-grype
+
+  images-ok:
+    # The required check of this workflow. Green only when every job succeeded or was skipped for a reason this job
+    # recomputes from the event, the ref and plan's outputs: a skip from a wrong if: is red, and so are failure and
+    # cancelled. Never skipped itself (GitHub counts a skipped required check as passed). Needs no permission and runs
+    # no code of the repository.
+    needs:
+      - plan
+      - build-nopush
+      - build
+      - merge
+      - sign
+      - promote
+      - rescan
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          MODE: ${{ needs.plan.outputs.mode }}
+          HAS_IMAGES: ${{ needs.plan.outputs.has_images }}
+        run: |
+          main=false
+          [ "$REF" = refs/heads/main ] && [ "$EVENT" != pull_request ] && main=true
+          # skip_ok JOB: true when this run is one in which JOB does not run.
+          skip_ok() {
+            case $1 in
+            build-nopush) [ "$main" = true ] || [ "$MODE" != build ] || [ "$HAS_IMAGES" != true ] ;;
+            build | merge | sign | promote) [ "$main" != true ] || [ "$MODE" != build ] || [ "$HAS_IMAGES" != true ] ;;
+            rescan) [ "$MODE" != rescan ] ;;
+            *) false ;;
+            esac
+          }
+          red=0
+          for job in $(jq -r 'keys[]' <<<"$NEEDS"); do
+            result=$(jq -r --arg j "$job" '.[$j].result' <<<"$NEEDS")
+            case $result in
+            success) echo "ok    $job" ;;
+            skipped)
+              if skip_ok "$job"; then
+                echo "ok    $job skipped: not part of this run"
+              else
+                echo "::error::$job was skipped, but this run needed it"
+                red=1
+              fi
+              ;;
+            *)
+              echo "::error::$job: $result"
+              red=1
+              ;;
+            esac
+          done
+          exit "$red"

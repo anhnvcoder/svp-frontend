@@ -16,7 +16,6 @@
     "test": "vitest run",
     "size": "size-limit",
     "e2e": "playwright test",
-    "generate": "openapi-typescript ../services/gateway/openapi.yaml --output gen/api.d.ts",
     "format:check": "prettier --check ."
   },
   "dependencies": {

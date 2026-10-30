@@ -51,7 +51,7 @@ export function hashSid(sid: string): string {
   return createHash("sha256").update(sid).digest("hex");
 }
 
-// http://localhost (compose, `make web-dev`) gets a cookie without Secure and without a prefix: WebKit drops Secure
+// http://localhost (compose, `make dev`) gets a cookie without Secure and without a prefix: WebKit drops Secure
 // cookies set from http://localhost (WebKit bug 232088), and __Host- requires Secure. https gets __Host-Http-: no
 // Domain, so sibling hosts such as s3.svp.localhost cannot overwrite it, and HttpOnly is enforced by the name.
 export function sessionCookieName(secure: boolean): string {
