@@ -34,9 +34,8 @@ nguồn phát hành). Thiết kế và quyết định chung của lab nằm ở
 - Test e2e, đo, Lighthouse, source map (`make e2e`, `make measure-web`, `make measure-upload`, `make lighthouse`, `make sourcemaps`,
   `make k8s-e2e`, `make k8s-sourcemaps`) cần stack của backend đang chạy; máy 16 GB: không chạy compose và k3d cùng lúc.
 - CI chạy lại trên máy: job `check` là ba lệnh đầu cộng `make lockfile-scan`; job `config` là `make backend-checkout`, rồi
-  `SVP_CODE_ROOT="$PWD" .backend/deploy/ci/scan-gate.sh --check-ignorefile`, `.backend/deploy/ci/platform-guard.sh "$PWD"` và
-  `actionlint` (`make tools` cài). `platform-guard.sh` đọc mọi file của repo này trừ `.github/` và `.backend/`, cả `.md`: không file
-  nào ngoài workflow được nhắc biến `GITHUB_*` hay lệnh `gh` gọi API của nền tảng.
+  `SVP_CODE_ROOT="$PWD" .backend/deploy/ci/scan-gate.sh --check-ignorefile` và
+  `actionlint` (`make tools` cài).
 
 ## Quy ước test
 

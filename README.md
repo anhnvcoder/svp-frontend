@@ -82,7 +82,7 @@ với `SVP_CODE_ROOT` trỏ checkout của repo này (script backend chọn ngu�
 file, mọi job của PR chỉ `contents: read` và không secret.
 
 - `ci.yml` (PR, push `main`, chạy tay): `check` (`make install`, `make check`, `make generate-check`, `make lockfile-scan`), `config`
-  (cổng tệp bỏ qua của trivy, `platform-guard.sh` trên cây này, `actionlint`), `gitleaks` (toàn lịch sử), `sarif` (chỉ `main`), check
+  (cổng tệp bỏ qua của trivy, `actionlint`), `gitleaks` (toàn lịch sử), `sarif` (chỉ `main`), check
   tổng `ci-ok` (đủ `check`, `config`, `gitleaks`). Job `stack` (chỉ báo, ngoài `ci-ok`): đọc commit backend mà stg chạy
   (`make stg-revision`), checkout backend ở commit đó (`make stg-check`), `make up IMAGES=stg WEB_FROM=clone` của backend (sáu service
   backend là bản phát hành của stg theo digest, web build từ PR này), `make smoke`, `make e2e`, `make lighthouse` (đỏ không làm job đỏ).

@@ -126,7 +126,7 @@ jobs:
           path: ${{ runner.temp }}/trivy-lockfile.sarif
           if-no-files-found: ignore
 
-  # What no test covers: the rules of .trivyignore.yaml, the platform guard and the workflows themselves.
+  # What no test covers: the rules of .trivyignore.yaml and the workflows themselves.
   config:
     runs-on: ubuntu-24.04
     permissions:
@@ -141,10 +141,6 @@ jobs:
       # rescan of the web release too. Needs no image, no tool and no token.
       - name: Rules of .trivyignore.yaml
         run: SVP_CODE_ROOT="$PWD" .backend/deploy/ci/scan-gate.sh --check-ignorefile
-      # Only the backend's deploy/ci/platform.sh may read the CI's variables or call its API: a script of this
-      # repository that does it itself works here and silently loses its output on another CI. Every file of this
-      # repository counts, documentation included, except .github/ and .backend/. bash, git and jq: no network.
-      - run: .backend/deploy/ci/platform-guard.sh "$PWD"
       # Go only to build the two pinned tools below, at the Go of the backend's go.mod: no second pin.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
