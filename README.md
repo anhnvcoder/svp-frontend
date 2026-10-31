@@ -30,17 +30,20 @@ sách gói được dùng: [ADR-0016](https://github.com/anhnvcoder/short-video-
 
 `make help` liệt kê mọi target.
 
-| Lệnh                                                                                        | Việc                                                                                                                                        |
-| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make install`                                                                              | `pnpm install --frozen-lockfile`                                                                                                            |
-| `make dev`                                                                                  | `next dev` ở `http://localhost:3002`, trỏ gateway `127.0.0.1:8080` của backend, session ở Redis db 9                                        |
-| `make check`                                                                                | ESLint, Prettier, typecheck, Vitest (Redis db 15 qua `SVP_TEST_REDIS_URL`), `next build`, khởi động thử server standalone, ngân sách bundle |
-| `make generate`                                                                             | sinh `gen/api.d.ts` từ hợp đồng đã phát hành mà `api/contract.json` ghim, sau khi kiểm digest và chữ ký                                     |
-| `make generate-check`                                                                       | như trên vào thư mục tạm, lệch với `gen/api.d.ts` thì in diff và đỏ; không ghi gì dưới `gen/`                                               |
-| `make lockfile-scan`                                                                        | trivy quét `pnpm-lock.yaml` (gồm dev dependency); còn CRITICAL sau `.trivyignore.yaml` là đỏ                                                |
-| `make backend-checkout`                                                                     | checkout backend ở commit của `.backend-commit` vào `.backend/` (các target trên tự gọi khi cần)                                            |
-| `make e2e`, `make measure-web`, `make measure-upload`, `make lighthouse`, `make sourcemaps` | chạy trên stack compose của backend (`make up` ở backend; `OBS=lgtm` cho source map)                                                        |
-| `make k8s-e2e`, `make k8s-sourcemaps`                                                       | như trên với cluster k3d `svp` của backend (`https://svp.localhost:8443`)                                                                   |
+| Lệnh                                                                                        | Việc                                                                                                                                               |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make install`                                                                              | `pnpm install --frozen-lockfile`                                                                                                                   |
+| `make dev`                                                                                  | `next dev` ở `http://localhost:3002`, trỏ gateway `127.0.0.1:8080` của backend, session ở Redis db 9                                               |
+| `make check`                                                                                | ESLint, Prettier, typecheck, Vitest (Redis db 15 qua `SVP_TEST_REDIS_URL`), `next build`, khởi động thử server standalone, ngân sách bundle        |
+| `make generate`                                                                             | sinh `gen/api.d.ts` từ hợp đồng đã phát hành mà `api/contract.json` ghim, sau khi kiểm digest và chữ ký                                            |
+| `make generate-check`                                                                       | như trên vào thư mục tạm, lệch với `gen/api.d.ts` thì in diff và đỏ; không ghi gì dưới `gen/`                                                      |
+| `make lockfile-scan`                                                                        | trivy quét `pnpm-lock.yaml` (gồm dev dependency); còn CRITICAL sau `.trivyignore.yaml` là đỏ                                                       |
+| `make backend-checkout`                                                                     | checkout backend ở commit của `.backend-commit` vào `.backend/` (các target trên tự gọi khi cần)                                                   |
+| `make tools`                                                                                | cài `gitleaks`, `actionlint` bằng `go install` đúng version mà `Makefile` của backend ghim (cần Go)                                                |
+| `make stg-revision`                                                                         | in commit backend mà stg đang chạy (`revision` của `envs/stg/charts.yaml` trong bản clone `svp-gitops`: `SVP_GITOPS_DIR` hay `<workspace>/gitops`) |
+| `make stg-check`                                                                            | đỏ khi backend (`SVP_BACKEND_DIR`) không ở đúng commit đó hay chưa có chế độ `make up IMAGES=stg`                                                  |
+| `make e2e`, `make measure-web`, `make measure-upload`, `make lighthouse`, `make sourcemaps` | chạy trên stack compose của backend (`make up` ở backend; `OBS=lgtm` cho source map)                                                               |
+| `make k8s-e2e`, `make k8s-sourcemaps`                                                       | như trên với cluster k3d `svp` của backend (`https://svp.localhost:8443`)                                                                          |
 
 Test e2e cần trình duyệt của Playwright, cài một lần: `pnpm exec playwright install chromium webkit`.
 
@@ -70,3 +73,25 @@ công cụ ghim digest trong `Makefile` của nó. `make backend-checkout` đưa
 `Dockerfile` ở gốc repo, context là gốc repo (`.dockerignore` loại `node_modules`, output build, `.env*`, `.git`, `.backend/` và
 công cụ của repo). Image chạy server standalone của Next trên Node distroless; source map trình duyệt không vào image, nằm ở stage
 `sourcemaps`. Build, quét, ký và promote image phát hành chạy trong CI của repo này bằng script backend ở `.backend-commit`.
+
+## CI và phát hành
+
+Workflow ở `.github/workflows/` chỉ nối bước; logic nằm ở `Makefile` của repo này và ở `deploy/ci/` của backend, chạy từ `.backend/`
+với `SVP_CODE_ROOT` trỏ checkout của repo này (script backend chọn nguồn phát hành `web` theo repository, đẩy dưới prefix
+`ghcr.io/anhnvcoder/svp-web/`, ký bằng identity của workflow phát hành của repo này). Mọi action ghim SHA commit, `permissions: {}` ở đầu
+file, mọi job của PR chỉ `contents: read` và không secret.
+
+- `ci.yml` (PR, push `main`, chạy tay): `check` (`make install`, `make check`, `make generate-check`, `make lockfile-scan`), `config`
+  (cổng tệp bỏ qua của trivy, `platform-guard.sh` trên cây này, `actionlint`), `gitleaks` (toàn lịch sử), `sarif` (chỉ `main`), check
+  tổng `ci-ok` (đủ `check`, `config`, `gitleaks`). Job `stack` (chỉ báo, ngoài `ci-ok`): đọc commit backend mà stg chạy
+  (`make stg-revision`), checkout backend ở commit đó (`make stg-check`), `make up IMAGES=stg WEB_FROM=clone` của backend (sáu service
+  backend là bản phát hành của stg theo digest, web build từ PR này), `make smoke`, `make e2e`, `make lighthouse` (đỏ không làm job đỏ).
+- `images.yml` (PR, push `main`, chạy tay, lịch hằng ngày): `plan`; PR chỉ `build-nopush` (build, quét hai chân amd64, arm64); `main`:
+  `build` (trivy chặn bí mật và CRITICAL, grype trên SBOM, rồi mới push; source map trình duyệt của mỗi chân đẩy thành
+  `ghcr.io/anhnvcoder/svp-web/web-sourcemaps:<arch>-<hex của manifest con>`), `merge` (index đa kiến trúc), `sign` (cosign keyless,
+  SBOM, attestation `vuln`, build provenance), `promote` (environment `promote`, token một giờ của GitHub App `svp-web-promoter` chỉ
+  trên `svp-gitops`: dựng nhánh `bot/promote-stg-web` chỉ đổi `envs/stg/images/web.yaml`, PR tự merge khi `gitops-ok` xanh), `rescan`
+  (lịch hằng ngày: quét lại và attest lại bản web của repo này đang ở `envs/*/images/`, không đụng bản của backend), `sarif`, check
+  tổng `images-ok`.
+- Ruleset `main` (`.github/rulesets/main.json`): PR bắt buộc, `ci-ok` và `images-ok` từ app GitHub Actions, cấm xoá và force push, không
+  ai bypass. Promote prd làm ở backend (chép cả bộ bảy bản của một bản ghi stg).

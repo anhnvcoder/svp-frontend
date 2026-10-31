@@ -30,6 +30,19 @@ nguồn phát hành). Thiết kế và quyết định chung của lab nằm ở
   `make generate-check` (bản sinh khớp hợp đồng đã ghim), `make lockfile-scan` (cổng lỗ hổng của lockfile).
 - Test e2e, đo, Lighthouse, source map (`make e2e`, `make measure-web`, `make measure-upload`, `make lighthouse`, `make sourcemaps`,
   `make k8s-e2e`, `make k8s-sourcemaps`) cần stack của backend đang chạy; máy 16 GB: không chạy compose và k3d cùng lúc.
+- CI chạy lại trên máy: job `check` là ba lệnh đầu cộng `make lockfile-scan`; job `config` là `make backend-checkout`, rồi
+  `SVP_CODE_ROOT="$PWD" .backend/deploy/ci/scan-gate.sh --check-ignorefile`, `.backend/deploy/ci/platform-guard.sh "$PWD"` và
+  `actionlint` (`make tools` cài). `platform-guard.sh` đọc mọi file của repo này trừ `.github/` và `.backend/`, cả `.md`: không file
+  nào ngoài workflow được nhắc biến `GITHUB_*` hay lệnh `gh` gọi API của nền tảng.
+
+## Quy ước test
+
+- Vitest (`make check`): test Redis theo mục "An toàn database" dưới đây; request mạng không có handler MSW thì test lỗi.
+- e2e (`e2e/*.e2e.ts`, Playwright): chỉ chạy trên stack compose (`make e2e`) hay cluster k3d (`make k8s-e2e`) của backend, chọn bằng
+  `SVP_STACK` (`compose` mặc định, `k3d`); mỗi lượt đăng ký user mới với handle ngẫu nhiên dạng người chọn (`e2e/fixtures.ts`), tác giả
+  do seed tạo có handle sinh `u_…`. Test làm video `READY` (gắn `@publishes`) chạy ở project `chromium-publishing`/`webkit-publishing`
+  sau hai project chính. `SVP_E2E_EVIDENCE=<thư mục tuyệt đối>` bật trace, video, ảnh toàn trang (`e2e/evidence.e2e.ts`) vào thư mục
+  đó; `SVP_E2E_GLITCHTIP=1` thêm `e2e/glitchtip.e2e.ts` (cần tải source map trước). Kết quả và số đo ở `test-results/` (gitignore).
 
 ## An toàn database
 
