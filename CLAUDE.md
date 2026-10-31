@@ -21,6 +21,9 @@ nguồn phát hành). Thiết kế và quyết định chung của lab nằm ở
   mặc định `<workspace>/backend`); không chép script nào giữa hai repo.
 - **Docker** chạy với tiền tố `env -u DOCKER_DEFAULT_PLATFORM` (shell global đặt `linux/amd64` cho dự án khác; image phải đúng kiến
   trúc máy). Stack compose và cluster k3d chỉ dựng bằng `Makefile` của backend.
+- **Renovate** (`renovate.json`, sáng thứ Bảy, `minimumReleaseAge` 3 ngày trừ cảnh báo lỗ hổng): bản `patch`, `digest` của gói npm, pnpm,
+  Node (`.nvmrc`), base image của `Dockerfile` và service container của CI tự merge (auto-merge của GitHub, squash) khi `ci-ok`,
+  `images-ok` xanh; action, `.backend-commit`, `api/contract.json`, minor, major giữ duyệt tay ([ADR-0035](https://github.com/anhnvcoder/short-video-platform/blob/main/docs/adr/0035-renovate-automerge.md)).
 - **Git:** conventional commits, mô tả tiếng Việt. Không commit `.env`, secret, token. Mọi thay đổi vào `main` đi qua PR có `ci-ok`
   và `images-ok` xanh; không force push, hoàn tác bằng PR revert.
 
