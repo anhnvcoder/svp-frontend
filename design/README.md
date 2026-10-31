@@ -30,7 +30,7 @@ Nội dung ở đây **chỉ để tham khảo**: không file nào được web 
 ## Cách mở
 
 Các file `.dc.html` là trang tĩnh. Mở `SVP Mobile.dc.html`, `SVP Desktop.dc.html` hay `SVP Design System.dc.html` bằng trình
-duyệt (kéo file vào cửa sổ, hoặc `open "web/design/SVP Mobile.dc.html"`); các file còn lại là component được ba trang đó nhúng.
+duyệt (kéo file vào cửa sổ, hoặc `open "design/SVP Mobile.dc.html"`); các file còn lại là component được ba trang đó nhúng.
 `support.js` nạp React, Babel từ unpkg và `svp-tokens.css` nạp font Google, icon Lucide từ unpkg, nên cần mạng khi mở.
 
 ## Quy ước đã chốt
