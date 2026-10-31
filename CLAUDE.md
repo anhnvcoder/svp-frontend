@@ -1,8 +1,8 @@
-# svp-web — web client của lab short-video-platform
+# svp-frontend — web client của lab short-video-platform
 
 Đọc trước khi làm bất cứ việc gì: [`README.md`](README.md) (lệnh, hợp đồng API, commit ghim của backend),
-[ADR-0016](https://github.com/anhnvcoder/short-video-platform/blob/main/docs/adr/0016-web-client.md) (thiết kế web client, danh sách gói
-ở §10) và [ADR-0033](https://github.com/anhnvcoder/short-video-platform/blob/main/docs/adr/0033-svp-web-repo.md) (tách repo, hợp đồng,
+[ADR-0016](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0016-web-client.md) (thiết kế web client, danh sách gói
+ở §10) và [ADR-0033](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0033-svp-web-repo.md) (tách repo, hợp đồng,
 nguồn phát hành). Thiết kế và quyết định chung của lab nằm ở `docs/` của backend; đổi một quyết định đã chốt thì đề xuất kèm ADR ở đó.
 
 ## Quy ước
@@ -23,7 +23,7 @@ nguồn phát hành). Thiết kế và quyết định chung của lab nằm ở
   trúc máy). Stack compose và cluster k3d chỉ dựng bằng `Makefile` của backend.
 - **Renovate** (`renovate.json`, sáng thứ Bảy, `minimumReleaseAge` 3 ngày trừ cảnh báo lỗ hổng): bản `patch`, `digest` của gói npm, pnpm,
   Node (`.nvmrc`), base image của `Dockerfile` và service container của CI tự merge (auto-merge của GitHub, squash) khi `ci-ok`,
-  `images-ok` xanh; action, `.backend-commit`, `api/contract.json`, minor, major giữ duyệt tay ([ADR-0035](https://github.com/anhnvcoder/short-video-platform/blob/main/docs/adr/0035-renovate-automerge.md)).
+  `images-ok` xanh; action, `.backend-commit`, `api/contract.json`, minor, major giữ duyệt tay ([ADR-0035](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0035-renovate-automerge.md)).
 - **Git:** conventional commits, mô tả tiếng Việt. Không commit `.env`, secret, token. Mọi thay đổi vào `main` đi qua PR có `ci-ok`
   và `images-ok` xanh; không force push, hoàn tác bằng PR revert.
 

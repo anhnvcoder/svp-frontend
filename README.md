@@ -1,13 +1,13 @@
-# svp-web
+# svp-frontend
 
 Web client của nền tảng video ngắn mini (lab học DevOps + Solution Architect): Next.js App Router, BFF chạy trong cùng server
 Next (session ở Redis, gọi gateway của backend), feed dọc phát HLS, hồ sơ, tải video lên bằng presigned POST.
 
-Repo này là phía "team FE" của lab. Backend (`anhnvcoder/short-video-platform`) giữ service Go, hợp đồng REST của gateway,
+Repo này là phía "team FE" của lab. Backend (`anhnvcoder/svp-backend`) giữ service Go, hợp đồng REST của gateway,
 stack compose và cluster k3d; `anhnvcoder/svp-gitops` giữ môi trường nào chạy bản nào. Hai phía nói chuyện với nhau qua **hợp đồng
 API có version và chữ ký**, không qua file chép tay. Lý do tách và các quyết định:
-[ADR-0033](https://github.com/anhnvcoder/short-video-platform/blob/main/docs/adr/0033-svp-web-repo.md); thiết kế web client và danh
-sách gói được dùng: [ADR-0016](https://github.com/anhnvcoder/short-video-platform/blob/main/docs/adr/0016-web-client.md).
+[ADR-0033](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0033-svp-web-repo.md); thiết kế web client và danh
+sách gói được dùng: [ADR-0016](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0016-web-client.md).
 
 ## Cần có
 
@@ -21,8 +21,8 @@ sách gói được dùng: [ADR-0016](https://github.com/anhnvcoder/short-video-
 
 ```text
 <workspace>/
-  backend/    anhnvcoder/short-video-platform
-  frontend/   repo này (anhnvcoder/svp-web)
+  backend/    anhnvcoder/svp-backend
+  frontend/   repo này (anhnvcoder/svp-frontend)
   gitops/     anhnvcoder/svp-gitops
 ```
 
@@ -53,7 +53,7 @@ db 10 của stack (Valkey db 10 của cluster khi chạy k3d), bằng script c�
 ## Hợp đồng API
 
 - Spec OpenAPI của gateway chỉ có một nguồn: backend, `services/gateway/openapi.yaml`. Backend phát hành mỗi `info.version` thành OCI
-  artifact `ghcr.io/anhnvcoder/short-video-platform/api/gateway:<version>`, ký keyless bằng workflow phát hành của nó.
+  artifact `ghcr.io/anhnvcoder/svp-backend/api/gateway:<version>`, ký keyless bằng workflow phát hành của nó.
 - `api/contract.json` ghim bản dùng ở đây: `repository`, `version`, `digest`. `make generate` kéo manifest theo digest (ẩn danh), kiểm
   manifest băm đúng digest, đúng loại artifact và version, tag của version trỏ đúng digest đó, `cosign verify` với identity của nguồn
   phát hành `backend` (đọc từ bảng nguồn của backend ở `.backend-commit`), rồi mới sinh type bằng `openapi-typescript`. Sai một điều thì
@@ -78,7 +78,7 @@ công cụ của repo). Image chạy server standalone của Next trên Node dis
 
 Workflow ở `.github/workflows/` chỉ nối bước; logic nằm ở `Makefile` của repo này và ở `deploy/ci/` của backend, chạy từ `.backend/`
 với `SVP_CODE_ROOT` trỏ checkout của repo này (script backend chọn nguồn phát hành `web` theo repository, đẩy dưới prefix
-`ghcr.io/anhnvcoder/svp-web/`, ký bằng identity của workflow phát hành của repo này). Mọi action ghim SHA commit, `permissions: {}` ở đầu
+`ghcr.io/anhnvcoder/svp-frontend/`, ký bằng identity của workflow phát hành của repo này). Mọi action ghim SHA commit, `permissions: {}` ở đầu
 file, mọi job của PR chỉ `contents: read` và không secret.
 
 - `ci.yml` (PR, push `main`, chạy tay): `check` (`make install`, `make check`, `make generate-check`, `make lockfile-scan`), `config`
@@ -88,7 +88,7 @@ file, mọi job của PR chỉ `contents: read` và không secret.
   backend là bản phát hành của stg theo digest, web build từ PR này), `make smoke`, `make e2e`, `make lighthouse` (đỏ không làm job đỏ).
 - `images.yml` (PR, push `main`, chạy tay, lịch hằng ngày): `plan`; PR chỉ `build-nopush` (build, quét hai chân amd64, arm64); `main`:
   `build` (trivy chặn bí mật và CRITICAL, grype trên SBOM, rồi mới push; source map trình duyệt của mỗi chân đẩy thành
-  `ghcr.io/anhnvcoder/svp-web/web-sourcemaps:<arch>-<hex của manifest con>`), `merge` (index đa kiến trúc), `sign` (cosign keyless,
+  `ghcr.io/anhnvcoder/svp-frontend/web-sourcemaps:<arch>-<hex của manifest con>`), `merge` (index đa kiến trúc), `sign` (cosign keyless,
   SBOM, attestation `vuln`, build provenance), `promote` (environment `promote`, token một giờ của GitHub App `svp-web-promoter` chỉ
   trên `svp-gitops`: dựng nhánh `bot/promote-stg-web` chỉ đổi `envs/stg/images/web.yaml`, PR tự merge khi `gitops-ok` xanh), `rescan`
   (lịch hằng ngày: quét lại và attest lại bản web của repo này đang ở `envs/*/images/`, không đụng bản của backend), `sarif`, check
@@ -97,4 +97,4 @@ file, mọi job của PR chỉ `contents: read` và không secret.
   ai bypass. Promote prd làm ở backend (chép cả bộ bảy bản của một bản ghi stg).
 - Renovate (App Mend, `renovate.json`): PR `patch`, `digest` của gói npm, pnpm, Node, base image và service container của CI tự merge
   khi `ci-ok`, `images-ok` xanh (auto-merge của GitHub, squash; repo phải bật "Allow auto-merge"), nên vào stg như một merge tay; PR của
-  action, `.backend-commit`, `api/contract.json` và mọi minor, major chờ người duyệt ([ADR-0035](https://github.com/anhnvcoder/short-video-platform/blob/main/docs/adr/0035-renovate-automerge.md)).
+  action, `.backend-commit`, `api/contract.json` và mọi minor, major chờ người duyệt ([ADR-0035](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0035-renovate-automerge.md)).

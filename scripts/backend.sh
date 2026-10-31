@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The two copies of the backend repository (anhnvcoder/short-video-platform) this repository reads, never writes, and
+# The two copies of the backend repository (anhnvcoder/svp-backend) this repository reads, never writes, and
 # the backend commit staging runs:
 #
 #   backend.sh dir       prints the backend whose harness the end-to-end runs, measurements and source map uploads use:
@@ -29,7 +29,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd -P)
-backend_url=https://github.com/anhnvcoder/short-video-platform.git
+backend_url=https://github.com/anhnvcoder/svp-backend.git
 gitops_url=https://github.com/anhnvcoder/svp-gitops.git
 
 fail() {
@@ -40,7 +40,7 @@ fail() {
 # is_clone DIR [REPO]: true when DIR is the top of a git work tree whose remote origin is anhnvcoder/REPO on GitHub,
 # by default the backend repository.
 is_clone() {
-  local top url repo=${2:-short-video-platform}
+  local top url repo=${2:-svp-backend}
   [ -d "$1" ] || return 1
   top=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) && [ "$top" = "$(cd "$1" && pwd -P)" ] || return 1
   url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 1

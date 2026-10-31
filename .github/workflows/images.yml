@@ -1,8 +1,8 @@
-# The web image of this repository, ghcr.io/anhnvcoder/svp-web/web: built at every run from the whole tree, on native
+# The web image of this repository, ghcr.io/anhnvcoder/svp-frontend/web: built at every run from the whole tree, on native
 # amd64 and arm64 runners; the local image scanned with trivy, and its SBOM with grype, blocking secrets and CRITICAL
 # vulnerabilities BEFORE anything is pushed; exactly what was scanned pushed; a multi-arch index joined, signed keyless
 # with cosign, and attested with the SBOM (syft), the scan result and the build provenance; the browser source maps of
-# each leg pushed beside it as ghcr.io/anhnvcoder/svp-web/web-sourcemaps:<arch>-<manifest hex>; the signed digest
+# each leg pushed beside it as ghcr.io/anhnvcoder/svp-frontend/web-sourcemaps:<arch>-<manifest hex>; the signed digest
 # promoted to stg through a pull request in the deployment repository svp-gitops; released digests rescanned daily.
 #
 # The logic is the backend's deploy/ci/*.sh, run from .backend/, the backend checked out at the commit of
