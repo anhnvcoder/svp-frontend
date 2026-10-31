@@ -95,3 +95,6 @@ file, mọi job của PR chỉ `contents: read` và không secret.
   tổng `images-ok`.
 - Ruleset `main` (`.github/rulesets/main.json`): PR bắt buộc, `ci-ok` và `images-ok` từ app GitHub Actions, cấm xoá và force push, không
   ai bypass. Promote prd làm ở backend (chép cả bộ bảy bản của một bản ghi stg).
+- Renovate (App Mend, `renovate.json`): PR `patch`, `digest` của gói npm, pnpm, Node, base image và service container của CI tự merge
+  khi `ci-ok`, `images-ok` xanh (auto-merge của GitHub, squash; repo phải bật "Allow auto-merge"), nên vào stg như một merge tay; PR của
+  action, `.backend-commit`, `api/contract.json` và mọi minor, major chờ người duyệt ([ADR-0035](https://github.com/anhnvcoder/short-video-platform/blob/main/docs/adr/0035-renovate-automerge.md)).
