@@ -32,7 +32,7 @@
       "managerFilePatterns": ["/^\\.backend-commit$/"],
       "matchStrings": ["^(?<currentDigest>[0-9a-f]{40})\\n"],
       "datasourceTemplate": "git-refs",
-      "depNameTemplate": "https://github.com/anhnvcoder/short-video-platform",
+      "depNameTemplate": "https://github.com/anhnvcoder/svp-backend",
       "currentValueTemplate": "main"
     },
     {

@@ -1,6 +1,6 @@
 # Build, check and test entry point of the web client. `make help` lists the targets.
 #
-# Two copies of the backend repository (anhnvcoder/short-video-platform) serve different ends (scripts/backend.sh):
+# Two copies of the backend repository (anhnvcoder/svp-backend) serve different ends (scripts/backend.sh):
 #   - .backend/, gitignored: the backend at the commit of .backend-commit (make backend-checkout), the one place that
 #     pins it. The scan gate and platform adapter of its deploy/ci/, the tools its Makefile pins by digest (trivy, ORAS,
 #     cosign) and its table of release sources are read there, the same on a machine and in CI.
