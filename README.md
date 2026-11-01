@@ -64,8 +64,8 @@ db 10 của stack (Valkey db 10 của cluster khi chạy k3d), bằng script c�
 
 ## Commit ghim của backend
 
-`.backend-commit` là chỗ duy nhất ghim commit backend mà repo này dùng script CI (`deploy/ci/`: cổng quét, adapter nền tảng CI) và
-công cụ ghim digest trong `Makefile` của nó. `make backend-checkout` đưa `.backend/` (gitignore) về đúng commit đó, chỉ tải khi commit
+`.backend-commit` là chỗ duy nhất ghim commit backend mà repo này dùng script CI (`deploy/ci/`: cổng quét, build, ký và attest gồm
+build provenance, helper của job `promote`) và công cụ ghim digest trong `Makefile` của nó (cả `YQ_IMAGE` của bước promote). `make backend-checkout` đưa `.backend/` (gitignore) về đúng commit đó, chỉ tải khi commit
 đổi; `.backend/` có thay đổi chưa commit thì dừng. Renovate theo dõi `main` của backend và mở PR nâng commit.
 
 ## Image
@@ -73,7 +73,7 @@ công cụ ghim digest trong `Makefile` của nó. `make backend-checkout` đưa
 `Dockerfile` ở gốc repo, context là gốc repo (`.dockerignore` loại `node_modules`, output build, `.env*`, `.git`, `.backend/` và
 công cụ của repo). Image chạy server standalone của Next trên Node distroless; source map trình duyệt không vào image, nằm ở stage
 `sourcemaps`. Build, quét, ký image phát hành chạy trong CI của repo này bằng script backend ở `.backend-commit`; promote lên stg là
-bước `yq` + `gh` của chính job `promote`.
+bước `yq` + `gh` của chính job `promote` (helper `yq_`, `promote_open_pr` của `deploy/ci/common.sh` ở commit ghim).
 
 ## CI và phát hành
 
@@ -92,14 +92,15 @@ file, mọi job của PR chỉ `contents: read` và không secret.
   `build` (trivy chặn bí mật và CRITICAL, grype trên SBOM, rồi mới push; source map trình duyệt của mỗi chân đẩy thành
   `ghcr.io/anhnvcoder/svp-frontend/web-sourcemaps:<arch>-<hex của manifest con>`), `merge` (index đa kiến trúc), `sign` (cosign keyless,
   SBOM, attestation `vuln`, build provenance), `promote` (environment `promote`, token một giờ của GitHub App `svp-web-promoter` chỉ
-  trên `svp-gitops`: clone `svp-gitops`, dựng nhánh `bot/promote-stg-web` một commit của bot trên `main`, `yq -i` đúng khối `image` của
+  trên `svp-gitops`: clone `svp-gitops`, dựng nhánh `bot/promote-stg-web` một commit của bot trên `main`, `yq_ -i` (yq theo
+  `YQ_IMAGE` ghim digest trong `Makefile` của backend ở `.backend-commit`, không mạng) đúng khối `image` của
   `envs/stg/images/web.yaml` (không bao giờ `envs/stg/charts.yaml`), từ chối commit cũ hơn bản web mà `main` hay PR đang mở ghi (so tổ
   tiên), push `--force-with-lease`, `gh pr create`/`edit`, `gh pr merge --auto --squash --match-head-commit`: PR tự merge khi
   `gitops-ok` xanh), `rescan`
   (lịch hằng ngày: quét lại và attest lại bản web của repo này đang ở `envs/*/images/`, không đụng bản của backend), `sarif`, check
   tổng `images-ok`.
 - Ruleset `main` (`.github/rulesets/main.json`): PR bắt buộc, `ci-ok` và `images-ok` từ app GitHub Actions, cấm xoá và force push, không
-  ai bypass. Promote prd làm ở backend (chép cả bộ bảy bản của một bản ghi stg).
+  ai bypass. Promote prd làm ở backend (chép giá trị `envs/stg/` của `svp-gitops` ở `stg_ref` vào `envs/prd/`, PR do Code Owner duyệt).
 - Renovate (App Mend, `renovate.json`): PR `patch`, `digest` của gói npm, pnpm, Node, base image và service container của CI tự merge
   khi `ci-ok`, `images-ok` xanh (auto-merge của GitHub, squash; repo phải bật "Allow auto-merge"), nên vào stg như một merge tay; PR của
   action, `.backend-commit`, `api/contract.json` và mọi minor, major chờ người duyệt ([ADR-0035](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0035-renovate-automerge.md)).
