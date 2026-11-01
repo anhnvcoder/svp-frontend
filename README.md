@@ -111,7 +111,7 @@ file, mọi job của PR chỉ `contents: read` và không secret.
 - `scorecard.yml` (push `main`, lịch tuần): OpenSSF Scorecard của repo, kết quả công khai và lên code scanning.
 - Ruleset `main` (Terraform ở `github/rulesets.tf` của `svp-infra`): PR bắt buộc, `ci-ok` và `images-ok` từ app GitHub Actions, chỉ squash,
   lịch sử thẳng, cấm xoá và force push, không ai bypass. Ruleset `owners`: PR đổi đường có chủ trong `CODEOWNERS` (`.github/`,
-  `.backend-commit`, `Makefile`, `renovate.json`, `.trivyignore.yaml`, `.grype.yaml`, chính `CODEOWNERS`) cần Code Owner duyệt. Promote prd làm ở backend (chép giá trị `envs/stg/` của `svp-gitops` ở `stg_ref` vào `envs/prd/`, PR do Code Owner duyệt).
+  `.backend-commit`, `Makefile`, `pnpm-workspace.yaml`, `renovate.json`, `.trivyignore.yaml`, `.grype.yaml`, chính `CODEOWNERS`) cần Code Owner duyệt. Promote prd làm ở backend (chép giá trị `envs/stg/` của `svp-gitops` ở `stg_ref` vào `envs/prd/`) qua hai cổng: người học duyệt environment `promote-prd` của `svp-backend` (admin không bypass, trước khi job lấy khoá App), rồi Code Owner duyệt PR prd ở `svp-gitops`.
 - Renovate (App Mend, `renovate.json`): chỉ PR `patch` của npm `devDependencies` chạy trên máy dev và CI tự merge khi `ci-ok`,
   `images-ok` xanh (auto-merge của GitHub, squash; repo phải bật "Allow auto-merge"), nên vào stg như một merge tay; không file nào tự
   merge có Code Owner. Chờ người duyệt: npm `dependencies`; `typescript`, `tailwindcss`, `@tailwindcss/postcss` (chạy trong `next build`
