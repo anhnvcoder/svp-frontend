@@ -9,8 +9,9 @@
 # .backend-commit (make backend-checkout), the one place this repository pins it. SVP_CODE_ROOT (below) tells those
 # scripts that the code built and released is this checkout, not the backend's: they take the release source whose
 # repository is this one (deploy/helm/svp-policy/files/sources.json of .backend/), push under its prefix, sign with its
-# identity, and refuse to run when HEAD here is not the commit of the run. This file wires jobs, permissions and
-# artifacts.
+# identity, and refuse to run when HEAD here is not the commit of the run. Job promote is the exception: its step,
+# here, writes the image block of web in svp-gitops with yq and opens the pull request with gh. This file wires jobs,
+# permissions and artifacts.
 #
 # Security rules of this file:
 #   - permissions: {} here, and each job declares only what it needs. Every job that runs on a pull request has only
@@ -55,7 +56,7 @@ env:
 # One group per ref and mode: the scheduled rescan also runs on refs/heads/main, and sharing the build's group would
 # let it replace a queued push run. A run on main is never cancelled: cancelling one half-way through signing would
 # leave a pushed digest without its signature. Runs on main follow each other, so a later run never promotes before
-# an earlier one, and promote.sh never moves stg back to an older commit either way.
+# an earlier one, and job promote never moves stg back to an older commit either way.
 concurrency:
   group: images-${{ github.ref }}-${{ (github.event_name == 'schedule' || inputs.rescan) && 'rescan' || 'build' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -320,14 +321,15 @@ jobs:
           retention-days: 7
 
   promote:
-    # Promotes web to stg in svp-gitops (deploy/ci/promote.sh --source web): rebuilds the branch bot/promote-stg-web
-    # there from its main with the release this run signed, unless stg already runs a newer one (commits of main of
-    # this repository compared by ancestry, never by time), writes envs/stg/images/web.yaml only (never the charts,
-    # which are the backend's), opens or updates its pull request and turns on auto-merge; svp-gitops merges it once
-    # its check gitops-ok is green, with no review (no code owner owns envs/stg/). The first release of this repository
-    # takes web.yaml over from the backend's release once (a line "takeover" says so); later ones compare with it.
-    # Runs when signing failed too, and then promotes nothing new. The token is the app's, for svp-gitops alone;
-    # GITHUB_TOKEN only reads this repository. No id-token, no packages.
+    # Promotes web to stg in svp-gitops: rebuilds its branch bot/promote-stg-web as one commit of the app's bot on top
+    # of main there, with the image block of envs/stg/images/web.yaml set to the release this run signed (the file's
+    # comments kept), opens or updates its pull request and turns on auto-merge; svp-gitops merges it once its check
+    # gitops-ok is green, with no review (no code owner owns envs/stg/). Never writes envs/stg/charts.yaml: the charts
+    # are the backend's. Runs when signing failed too, and then promotes nothing. Runs of main follow each other (the
+    # concurrency group of builds never cancels), so a later run never promotes before an earlier one; the step
+    # refuses a run whose commit is older than the release of web that main of svp-gitops or the open pull request
+    # names (a run started again, a dispatch of an old commit), commits compared by ancestry, never by time. The token
+    # is the app's, for svp-gitops alone; GITHUB_TOKEN only reads this repository. No id-token, no packages.
     needs: [plan, sign]
     if: >-
       ${{ !cancelled() && needs.plan.outputs.mode == 'build' && needs.plan.outputs.has_images == 'true'
@@ -340,10 +342,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The whole history: a release's commit is compared by ancestry with main's.
+          # The whole history: the step compares this commit with stg's release by ancestry.
           fetch-depth: 0
           persist-credentials: false
-      - *backend
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: release-*
@@ -361,7 +362,107 @@ jobs:
       - name: Rebuild bot/promote-stg-web in svp-gitops, open or update its pull request, turn on auto-merge
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: .backend/deploy/ci/promote.sh --source web "$RUNNER_TEMP/releases"
+          RUN_COMMIT: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # yq from its official image pinned by digest, run without network: the yq preinstalled on the runner changes
+          # with the runner image, unseen and unreviewed, and this step writes the deployment repository.
+          # renovate: datasource=docker depName=mikefarah/yq
+          YQ_IMAGE: mikefarah/yq:4.54.1@sha256:4b3d9475d65571d28cbb19544d3820ec2945e4c8b2f18279394282b8dc3a592e
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*" >&2; exit 1; }
+          # yq [NAME=VALUE...] ARGS...: each leading NAME=VALUE is set in yq's environment alone, for strenv(NAME), so a
+          # value never becomes part of an expression. Edits files of the current directory; reads stdin.
+          yq() {
+            local env=()
+            while [[ ${1:-} =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do env+=(--env "$1"); shift; done
+            env -u DOCKER_DEFAULT_PLATFORM docker run --rm -i --network none --user "$(id -u):$(id -g)" \
+              -v "$PWD:/workdir" -w /workdir ${env[@]+"${env[@]}"} "$YQ_IMAGE" "$@"
+          }
+          # open_pr: the number of the open pull request from $branch into main that the app opened, or nothing. A
+          # fork's or a person's from a branch of that name is never the app's; --head matches the bare branch name, so
+          # forks' are listed too, and gh lists 30 by default: the list goes up to 500, and a full one fails rather
+          # than guess. A gh that fails fails too: read as "none", an outage would open a second pull request.
+          open_pr() {
+            local list
+            list=$(gh pr list --repo "$repo" --head "$branch" --base main --state open --limit 500 \
+              --json number,isCrossRepository,author) || fail "list the open pull requests of $branch in $repo"
+            [ "$(jq length <<<"$list")" -lt 500 ] ||
+              fail "500 or more open pull requests from a branch $branch in $repo: close the forks' before promoting"
+            jq -r --arg author "app/$app" \
+              '[.[] | select(.isCrossRepository == false and .author.login == $author)][0].number // empty' <<<"$list"
+          }
+          # not_behind WHERE: fails when this run's commit is a proper ancestor of the commit of the release of web that
+          # the image file at WHERE names (a ref of svp-gitops): promoting it would take stg back. A file naming
+          # another repository, or a tag that is no commit of this clone, cannot be compared and is not guessed.
+          not_behind() {
+            local r t c
+            if ! r=$(git show "$1:$file" | yq -e .image.repository) || ! t=$(git show "$1:$file" | yq -e .image.tag); then
+              fail "$file at $1 of svp-gitops has no image.repository and image.tag"
+            fi
+            [ "$r" = "$image" ] || fail "$file at $1 of svp-gitops names $r, not $image: not guessing whose it is"
+            if ! [[ $t =~ ^[0-9a-f]{12}$ ]] || ! c=$(git -C "$code" rev-parse --verify --quiet "$t^{commit}"); then
+              fail "tag '$t' of $file at $1 of svp-gitops is no commit of this repository"
+            fi
+            [ "$RUN_COMMIT" = "$c" ] || ! git -C "$code" merge-base --is-ancestor "$RUN_COMMIT" "$c" ||
+              fail "this run's commit ${RUN_COMMIT:0:12} is older than $t, which $1 of svp-gitops names: promoting it would take stg back"
+          }
+          code=$PWD repo=anhnvcoder/svp-gitops branch=bot/promote-stg-web app=svp-web-promoter
+          file=envs/stg/images/web.yaml image=ghcr.io/anhnvcoder/svp-frontend/web
+          # The release this run signed: none when signing failed (no artifact, not even the directory), never more
+          # than one.
+          found=$(find "$RUNNER_TEMP/releases" -type f -name digest 2>/dev/null | sort) || found=
+          if [ -z "$found" ]; then
+            echo "No release was signed in this run: nothing to promote."
+            exit 0
+          fi
+          [[ $found != *$'\n'* ]] || fail "more than one release in this run: ${found//$'\n'/ }"
+          dir=$(dirname "$found") R=$(cat "$dir/repository") T=$(cat "$dir/tag") D=$(cat "$dir/digest")
+          if [ "$R" != "$image" ] || [ "$T" != "${RUN_COMMIT:0:12}" ] || ! [[ $D =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            fail "$dir is no release of web at this commit ($R:$T@$D)"
+          fi
+          # Cloned anonymously: the token reaches only gh and, through gh's credential helper, the push.
+          git -c credential.helper= clone --quiet --no-tags "https://github.com/$repo.git" "$RUNNER_TEMP/gitops"
+          cd "$RUNNER_TEMP/gitops"
+          lease=$(git rev-parse --verify --quiet "refs/remotes/origin/$branch") || lease=
+          pr=$(open_pr)
+          not_behind origin/main
+          if [ -n "$lease" ] && [ -n "$pr" ]; then not_behind "$lease"; fi
+          git checkout --quiet -B "$branch" origin/main
+          yq R="$R" T="$T" D="$D" -i \
+            '.image.repository = strenv(R) | .image.tag = strenv(T) | .image.digest = strenv(D)' "$file"
+          if git diff --quiet origin/main; then
+            echo "main of svp-gitops already runs $R:$T@$D: no push, no pull request."
+            exit 0
+          fi
+          title="chore(stg): phát hành web $T"
+          msg="- web: $R:$T@$D
+
+          Code: https://github.com/$GITHUB_REPOSITORY/commit/$RUN_COMMIT
+          Run: $RUN_URL"
+          body="Promote web lên stg do job \`promote\` của \`images.yml\` ở https://github.com/$GITHUB_REPOSITORY ghi: chỉ
+          khối \`image\` của \`$file\`, không bao giờ \`envs/stg/charts.yaml\`. Nhánh dựng lại trên \`main\` mỗi lượt.
+          Auto-merge khi \`gitops-ok\` xanh, không cần duyệt.
+
+          $msg"
+          id=$(gh api "users/${app}%5Bbot%5D" --jq .id)
+          git -c user.name="${app}[bot]" -c user.email="$id+${app}[bot]@users.noreply.github.com" \
+            commit --quiet -am "$title" -m "$msg"
+          # The lease is the branch as cloned (empty: it must not exist): a change since fails the push, never lost.
+          gh auth setup-git
+          git push --quiet --force-with-lease="refs/heads/$branch:$lease" origin "HEAD:refs/heads/$branch"
+          # Read again after the push: the pull request read before, merged or closed meanwhile, no longer holds the
+          # branch, and editing it would still succeed.
+          now=$(open_pr)
+          [ -z "$pr" ] || [ "$now" = "$pr" ] ||
+            fail "pull request #$pr of $branch was merged or closed during this run: run the job again (from main as is)"
+          if [ -n "$now" ]; then
+            gh pr edit "$now" --repo "$repo" --title "$title" --body "$body"
+          else
+            now=$(gh pr create --repo "$repo" --base main --head "$branch" --title "$title" --body "$body")
+            now=${now##*/}
+          fi
+          gh pr merge "$now" --repo "$repo" --auto --squash --match-head-commit "$(git rev-parse HEAD)"
 
   rescan:
     # Daily (and on dispatch rescan=true): every web digest of this repository that svp-gitops names (envs/*/images/ at

@@ -18,7 +18,9 @@ nguồn phát hành). Thiết kế và quyết định chung của lab nằm ở
   nâng bản ghim ở đây.
 - **Script của backend:** `.backend-commit` là chỗ duy nhất ghim commit backend; `.backend/` là bản checkout ở commit đó, không sửa
   gì trong đó. Harness của stack (compose, cluster, xoá khoá rate limit) đọc từ bản clone backend của workspace (`SVP_BACKEND_DIR`,
-  mặc định `<workspace>/backend`); không chép script nào giữa hai repo.
+  mặc định `<workspace>/backend`); không chép script nào giữa hai repo. Riêng job `promote` của `images.yml` không gọi script backend:
+  bước của nó (`yq` ghim digest + `gh`) chỉ ghi khối `image` của `envs/stg/images/web.yaml` trên nhánh `bot/promote-stg-web` của
+  `svp-gitops` và bật auto-merge cho PR.
 - **Docker** chạy với tiền tố `env -u DOCKER_DEFAULT_PLATFORM` (shell global đặt `linux/amd64` cho dự án khác; image phải đúng kiến
   trúc máy). Stack compose và cluster k3d chỉ dựng bằng `Makefile` của backend.
 - **Renovate** (`renovate.json`, sáng thứ Bảy, `minimumReleaseAge` 3 ngày trừ cảnh báo lỗ hổng): bản `patch`, `digest` của gói npm, pnpm,
