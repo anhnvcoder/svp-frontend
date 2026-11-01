@@ -418,8 +418,9 @@ jobs:
           fi
           [[ $found != *$'\n'* ]] || fail "more than one release in this run: ${found//$'\n'/ }"
           dir=$(dirname "$found") R=$(cat "$dir/repository") T=$(cat "$dir/tag") D=$(cat "$dir/digest")
-          [ "$R" = "$image" ] && [ "$T" = "${RUN_COMMIT:0:12}" ] && [[ $D =~ ^sha256:[0-9a-f]{64}$ ]] ||
+          if [ "$R" != "$image" ] || [ "$T" != "${RUN_COMMIT:0:12}" ] || ! [[ $D =~ ^sha256:[0-9a-f]{64}$ ]]; then
             fail "$dir is no release of web at this commit ($R:$T@$D)"
+          fi
           # Cloned anonymously: the token reaches only gh and, through gh's credential helper, the push.
           git -c credential.helper= clone --quiet --no-tags "https://github.com/$repo.git" "$RUNNER_TEMP/gitops"
           cd "$RUNNER_TEMP/gitops"
