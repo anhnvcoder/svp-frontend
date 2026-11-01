@@ -64,8 +64,8 @@ db 10 của stack (Valkey db 10 của cluster khi chạy k3d), bằng script c�
 
 ## Commit ghim của backend
 
-`.backend-commit` là chỗ duy nhất ghim commit backend mà repo này dùng script CI (`deploy/ci/`: cổng quét, build, ký và attest gồm
-build provenance, helper của job `promote`) và công cụ ghim digest trong `Makefile` của nó (cả `YQ_IMAGE` của bước promote). `make backend-checkout` đưa `.backend/` (gitignore) về đúng commit đó, chỉ tải khi commit
+`.backend-commit` là chỗ duy nhất ghim commit backend mà repo này dùng script CI (`deploy/ci/`: cổng quét, build, ký và attest SBOM,
+`vuln`, rescan, helper của job `promote`) và công cụ ghim digest trong `Makefile` của nó (cả `YQ_IMAGE` của bước promote). `make backend-checkout` đưa `.backend/` (gitignore) về đúng commit đó, chỉ tải khi commit
 đổi; `.backend/` có thay đổi chưa commit thì dừng. Renovate theo dõi `main` của backend và mở PR nâng commit.
 
 ## Image
@@ -91,8 +91,9 @@ file, mọi job của PR chỉ `contents: read` và không secret.
   backend là bản phát hành của stg theo digest, web build từ PR này), `make smoke`, `make e2e`, `make lighthouse` (đỏ không làm job đỏ).
 - `images.yml` (PR, push `main`, chạy tay, lịch hằng ngày): `plan`; PR chỉ `build-nopush` (build, quét hai chân amd64, arm64); `main`:
   `build` (trivy chặn bí mật và CRITICAL còn lại sau `.trivyignore.yaml`, grype trên SBOM chặn Critical còn lại sau `.grype.yaml`,
-  rồi mới push), `merge` (index đa kiến trúc), `sign` (cosign keyless,
-  SBOM, attestation `vuln`, build provenance), `promote` (environment `promote`, token một giờ của GitHub App `svp-web-promoter` chỉ
+  rồi mới push), `merge` (index đa kiến trúc), `sign` (cosign keyless:
+  chữ ký, SBOM, attestation `vuln` ở dạng Sigstore bundle; rồi build provenance bằng `actions/attest`, quyền `attestations: write` chỉ ở
+  job này), `promote` (environment `promote`, token một giờ của GitHub App `svp-web-promoter` chỉ
   trên `svp-gitops`: clone `svp-gitops`, dựng nhánh `bot/promote-stg-web` một commit của bot trên `main`, `yq_ -i` (yq theo
   `YQ_IMAGE` ghim digest trong `Makefile` của backend ở `.backend-commit`, không mạng) đúng khối `image` của
   `envs/stg/images/web.yaml` (không bao giờ `envs/stg/charts.yaml`), từ chối commit cũ hơn bản web mà `main` hay PR đang mở ghi (so tổ
