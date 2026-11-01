@@ -9,14 +9,11 @@ nguồn phát hành). Thiết kế và quyết định chung của lab nằm ở
 
 ## Quy ước
 
+Quy ước chung (ngôn ngữ, tài liệu timeless, ADR, comment, Git, repo public, phụ thuộc): [`CONTRIBUTING.md` của `anhnvcoder/.github`](https://github.com/anhnvcoder/.github/blob/main/CONTRIBUTING.md); dưới đây chỉ luật riêng của repo này.
+
 - **Ngôn ngữ lập trình:** TypeScript (Next.js); chỉ dùng gói trong danh sách của ADR-0016 §10, thêm gói phải có lý do và người học duyệt.
   Version gói ghim chính xác, `pnpm install --frozen-lockfile`; setting chuỗi cung ứng ở `pnpm-workspace.yaml`.
-- **Ngôn ngữ viết:** file `.md` viết tiếng Việt; mọi thứ trong code (comment, log, tên test, error message, file cấu hình) viết tiếng
-  Anh.
-- **Comment trong code** tự đủ nghĩa: nói lý do ngay tại chỗ, không nhắc ADR (số mục đổi hay ADR bị thay thì tham chiếu thành sai). File
-  `.md` vẫn link ADR.
-- **Không nhãn tiến độ:** code và tài liệu hiện trạng (README, `AGENTS.md`, comment, tên job và bước của workflow) không mang nhãn
-  "giai đoạn N", "phần M"; nói thứ đó làm gì. Lịch sử nằm ở git log và ADR.
+- **Ngôn ngữ viết:** file `.md` viết tiếng Việt; file `.md` vẫn link ADR.
 - **Hợp đồng API:** type của gateway chỉ sinh từ bản phát hành mà `api/contract.json` ghim (`make generate`); không sửa tay
   `gen/api.d.ts`, không chép spec của backend vào đây. Cần thay đổi API thì thay đổi ở backend trước (theo luật version của spec), rồi
   nâng bản ghim ở đây.
@@ -31,8 +28,7 @@ nguồn phát hành). Thiết kế và quyết định chung của lab nằm ở
 - **Renovate** (`renovate.json`, sáng thứ Bảy, `minimumReleaseAge` 3 ngày trừ cảnh báo lỗ hổng): bản `patch`, `digest` của gói npm, pnpm,
   Node (`.nvmrc`), base image của `Dockerfile` và service container của CI tự merge (auto-merge của GitHub, squash) khi `ci-ok`,
   `images-ok` xanh; action, `.backend-commit`, `api/contract.json`, minor, major giữ duyệt tay ([ADR-0035](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0035-renovate-automerge.md)).
-- **Git:** conventional commits, mô tả tiếng Việt. Không commit `.env`, secret, token. Mọi thay đổi vào `main` đi qua PR có `ci-ok`
-  và `images-ok` xanh; không force push, hoàn tác bằng PR revert.
+- **Git:** mọi thay đổi vào `main` đi qua PR có `ci-ok` và `images-ok` xanh.
 
 ## Kiểm tra
 
