@@ -22,7 +22,8 @@ Quy ước chung (ngôn ngữ, tài liệu timeless, ADR, comment, Git, repo pub
   mặc định `<workspace>/backend`); không chép script nào giữa hai repo. Riêng job `promote` của `images.yml` không chạy script backend nào:
   bước của nó viết ngay trong workflow, chỉ source `.backend/deploy/ci/common.sh` để dùng `yq_` (yq theo `YQ_IMAGE` ghim digest trong
   `Makefile` của backend), `promote_open_pr` và `promote_image_row`, rồi chỉ ghi khối `image` của `envs/stg/images/web.yaml` trên nhánh `bot/promote-stg-web`
-  của `svp-gitops` và bật auto-merge cho PR.
+  của `svp-gitops` và bật auto-merge cho PR. Build provenance của job `sign` cũng không phải script: bước `actions/attest` (ghim cùng SHA
+  với `images.yml` của backend) attest digest index mà `sign-image.sh` trả ra, sau chữ ký và `vuln`.
 - **Docker** chạy với tiền tố `env -u DOCKER_DEFAULT_PLATFORM` (shell global đặt `linux/amd64` cho dự án khác; image phải đúng kiến
   trúc máy). Stack compose và cluster k3d chỉ dựng bằng `Makefile` của backend.
 - **Renovate** (`renovate.json`, sáng thứ Bảy, `minimumReleaseAge` 3 ngày trừ cảnh báo lỗ hổng): bản `patch`, `digest` của gói npm, pnpm,
