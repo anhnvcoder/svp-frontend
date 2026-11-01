@@ -418,16 +418,39 @@ jobs:
             echo "main of svp-gitops already runs $R:$T@$D: no push, no pull request."
             exit 0
           fi
-          title="chore(stg): phát hành web $T"
+          title="chore(stg): phát hành web ở $T"
+          code_url=https://github.com/$GITHUB_REPOSITORY/commit/$RUN_COMMIT
           msg="- web: $R:$T@$D
 
-          Code: https://github.com/$GITHUB_REPOSITORY/commit/$RUN_COMMIT
+          Code: $code_url
           Run: $RUN_URL"
-          body="Promote web lên stg do job \`promote\` của \`images.yml\` ở https://github.com/$GITHUB_REPOSITORY ghi: chỉ
-          khối \`image\` của \`$file\`, không bao giờ \`envs/stg/charts.yaml\`. Nhánh dựng lại trên \`main\` mỗi lượt.
-          Auto-merge khi \`gitops-ok\` xanh, không cần duyệt.
+          package=${R#ghcr.io/anhnvcoder/}
+          row="| \`web\` | [\`$T\`](https://github.com/$GITHUB_REPOSITORY/commit/$T) | [\`$R@${D:0:19}…\`](https://github.com/$GITHUB_REPOSITORY/pkgs/container/${package//\//%2F}) |"
+          body="## Thay đổi gì
 
-          $msg"
+          Đưa web lên stg bằng image mới.
+
+          | Service | Commit | Image |
+          | --- | --- | --- |
+          $row
+
+          Digest đầy đủ nằm trong commit của PR.
+
+          ## Vì sao
+
+          Commit [\`${RUN_COMMIT:0:12}\`]($code_url) vào \`main\` của \`$GITHUB_REPOSITORY\` đã build và ký image web, nên stg cần chạy bản đó.
+
+          ## Đã kiểm gì
+
+          - [Lượt CI]($RUN_URL) đã build và ký image trên.
+          - Check \`gitops-ok\` của \`svp-gitops\` chạy trên PR này: image ghim digest, có chữ ký, kết quả quét lỗ hổng còn hạn
+            và provenance khớp commit.
+          - PR tự merge (squash) khi \`gitops-ok\` xanh. \`envs/stg/\` không có Code Owner nên không cần ai duyệt.
+
+          ## Phạm vi
+
+          Bot \`$app\` chỉ sửa khối \`image\` của \`$file\`. Nó không sửa \`envs/stg/charts.yaml\`: chart thuộc repo backend.
+          Mỗi lượt build dựng lại nhánh \`$branch\` từ \`main\` và ghi đè \`$file\` bằng bản của lượt đó; bản chưa merge của lượt trước bị thay."
           id=$(gh api "users/${app}%5Bbot%5D" --jq .id)
           git -c user.name="${app}[bot]" -c user.email="$id+${app}[bot]@users.noreply.github.com" \
             commit --quiet -am "$title" -m "$msg"
