@@ -1,18 +1,17 @@
 # The web image of this repository, ghcr.io/anhnvcoder/svp-frontend/web: built at every run from the whole tree, on native
 # amd64 and arm64 runners; the local image scanned with trivy, and its SBOM with grype, blocking secrets and CRITICAL
 # vulnerabilities BEFORE anything is pushed; exactly what was scanned pushed; a multi-arch index joined, signed keyless
-# with cosign, and attested with the SBOM (syft), the scan result and the build provenance; the browser source maps of
-# each leg pushed beside it as ghcr.io/anhnvcoder/svp-frontend/web-sourcemaps:<arch>-<manifest hex>; the signed digest
-# promoted to stg through a pull request in the deployment repository svp-gitops; released digests rescanned daily.
+# with cosign, and attested with the SBOM (syft), the scan result and the build provenance; the signed digest promoted
+# to stg through a pull request in the deployment repository svp-gitops; released digests rescanned daily.
 #
 # The logic is the backend's deploy/ci/*.sh, run from .backend/, the backend checked out at the commit of
 # .backend-commit (make backend-checkout), the one place this repository pins it. SVP_CODE_ROOT (below) tells those
 # scripts that the code built and released is this checkout, not the backend's: they take the release source whose
 # repository is this one (deploy/helm/svp-policy/files/sources.json of .backend/), push under its prefix, sign with its
 # identity, and refuse to run when HEAD here is not the commit of the run. Job promote is the exception: its step,
-# here, writes the image block of web in svp-gitops and opens the pull request with gh, with two helpers of the
-# backend's deploy/ci/common.sh (yq_, the yq the backend's Makefile pins by digest; promote_open_pr). This file wires
-# jobs, permissions and artifacts.
+# here, writes the image block of web in svp-gitops and opens the pull request with gh, with three helpers of the
+# backend's deploy/ci/common.sh (yq_, the yq the backend's Makefile pins by digest; promote_open_pr; promote_image_row,
+# the row of the pull request's table). This file wires jobs, permissions and artifacts.
 #
 # Security rules of this file:
 #   - permissions: {} here, and each job declares only what it needs. Every job that runs on a pull request has only
@@ -145,12 +144,6 @@ jobs:
     # main: the same steps, then push exactly the scanned image (by config digest) and hand the leg to the jobs after
     # it as an artifact. The gate step has no always() and no continue-on-error: a blocked image stops the leg before
     # the push. The cache is the only shared state, and no job holding id-token uses it.
-    # Each leg then hands over the browser bundle's source maps, exported by build-image.sh from the image's own build
-    # cache: as artifact web-sourcemaps-<arch> of this run (the tree _next/static/... of chunks and maps, and the file
-    # image-digest, the manifest digest this leg pushed), and as the image web-sourcemaps:<arch>-<hex of that digest>,
-    # which the backend's deployment check (scenario gitops of its verify workflow) pulls anonymously by the manifest a
-    # cluster runs, with no token for this repository's artifacts. Only pushed legs have a digest, so pull requests export and check the
-    # maps in build-image.sh but hand over none.
     needs: plan
     if: >-
       ${{ !cancelled() && needs.plan.result == 'success'
@@ -179,24 +172,6 @@ jobs:
         run: |
           printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           .backend/deploy/ci/push-image.sh "$IMAGE" "$ARCH" "$RUNNER_TEMP/leg"
-      - name: Pack the web source maps with the pushed manifest digest
-        run: |
-          .backend/deploy/ci/build-image.sh --sourcemaps-artifact "$RUNNER_TEMP/leg" "$RUNNER_TEMP/leg/digest" \
-            "$RUNNER_TEMP/web-sourcemaps"
-      - name: Hand over the web source maps
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: web-sourcemaps-${{ matrix.arch }}
-          path: ${{ runner.temp }}/web-sourcemaps
-          if-no-files-found: error
-      # A tag already pushed with the same tree is left alone (a leg run again), one with another tree fails: nothing
-      # is overwritten. docker login of the push step above still holds on this runner.
-      - name: Push the web source maps as an image of their own
-        env:
-          ARCH: ${{ matrix.arch }}
-        run: .backend/deploy/ci/sourcemaps-image.sh push "$ARCH" "$RUNNER_TEMP/web-sourcemaps"
-      # The leg goes to merge only after its source maps are pushed: merge only checks that both leg artifacts exist,
-      # so a leg handed over first would be released without the maps image the deployment check pulls.
       - name: Hand the leg over (manifest digest, scan report, SBOM, scan times)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -370,8 +345,9 @@ jobs:
           set -euo pipefail
           # yq_ (the yq of YQ_IMAGE, pinned by digest in the backend's Makefile, run without network: the yq
           # preinstalled on the runner changes with the runner image, unseen, and this step writes the deployment
-          # repository) and promote_open_pr (the open pull request of the app from a branch, never a fork's; a gh that
-          # fails, or a list too long to trust, fails). Sourcing it only defines things.
+          # repository), promote_open_pr (the open pull request of the app from a branch, never a fork's; a gh that
+          # fails, or a list too long to trust, fails) and promote_image_row (the row of the table in the pull
+          # request's body). Sourcing it only defines things.
           . .backend/deploy/ci/common.sh
           # After the source: its own fail would print no annotation.
           fail() { echo "::error::$*" >&2; exit 1; }
@@ -424,8 +400,7 @@ jobs:
 
           Code: $code_url
           Run: $RUN_URL"
-          package=${R#ghcr.io/anhnvcoder/}
-          row="| \`web\` | [\`$T\`](https://github.com/$GITHUB_REPOSITORY/commit/$T) | [\`$R@${D:0:19}…\`](https://github.com/$GITHUB_REPOSITORY/pkgs/container/${package//\//%2F}) |"
+          row=$(promote_image_row web "$R" "$T" "$D")
           body="## Thay đổi gì
 
           Đưa web lên stg bằng image mới.

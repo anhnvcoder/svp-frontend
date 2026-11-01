@@ -19,8 +19,8 @@ import { stack } from "./stack";
 // SENTRY_AUTH_TOKEN of the backend's .env (read with its deploy/observability/glitchtip/dotenv.sh), k3d gets the token of Secret
 // svp-obs/glitchtip-api from e2e/k3d-e2e.sh in SVP_E2E_GLITCHTIP_TOKEN. GlitchTip is on 127.0.0.1:8000 on both:
 // compose publishes it there, e2e/k3d-e2e.sh opens a port-forward there for the run. Each browser's event, once found,
-// goes to test-results/glitchtip-<project>.json (with the environment GlitchTip holds for it), which `make
-// drill-k8s-web-obs` reads back.
+// goes to test-results/glitchtip-<project>.json (with the environment GlitchTip holds for it), the run's record of
+// what GlitchTip received.
 
 const glitchtipURL = "http://127.0.0.1:8000";
 // Organization and project that GlitchTip's bootstrap creates on both stacks.
