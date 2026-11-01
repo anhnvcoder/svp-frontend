@@ -10,8 +10,9 @@
 # scripts that the code built and released is this checkout, not the backend's: they take the release source whose
 # repository is this one (deploy/helm/svp-policy/files/sources.json of .backend/), push under its prefix, sign with its
 # identity, and refuse to run when HEAD here is not the commit of the run. Job promote is the exception: its step,
-# here, writes the image block of web in svp-gitops with yq and opens the pull request with gh. This file wires jobs,
-# permissions and artifacts.
+# here, writes the image block of web in svp-gitops and opens the pull request with gh, with two helpers of the
+# backend's deploy/ci/common.sh (yq_, the yq the backend's Makefile pins by digest; promote_open_pr). This file wires
+# jobs, permissions and artifacts.
 #
 # Security rules of this file:
 #   - permissions: {} here, and each job declares only what it needs. Every job that runs on a pull request has only
@@ -345,6 +346,7 @@ jobs:
           # The whole history: the step compares this commit with stg's release by ancestry.
           fetch-depth: 0
           persist-credentials: false
+      - *backend
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: release-*
@@ -364,40 +366,21 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           RUN_COMMIT: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # yq from its official image pinned by digest, run without network: the yq preinstalled on the runner changes
-          # with the runner image, unseen and unreviewed, and this step writes the deployment repository.
-          # renovate: datasource=docker depName=mikefarah/yq
-          YQ_IMAGE: mikefarah/yq:4.54.1@sha256:4b3d9475d65571d28cbb19544d3820ec2945e4c8b2f18279394282b8dc3a592e
         run: |
           set -euo pipefail
+          # yq_ (the yq of YQ_IMAGE, pinned by digest in the backend's Makefile, run without network: the yq
+          # preinstalled on the runner changes with the runner image, unseen, and this step writes the deployment
+          # repository) and promote_open_pr (the open pull request of the app from a branch, never a fork's; a gh that
+          # fails, or a list too long to trust, fails). Sourcing it only defines things.
+          . .backend/deploy/ci/common.sh
+          # After the source: its own fail would print no annotation.
           fail() { echo "::error::$*" >&2; exit 1; }
-          # yq [NAME=VALUE...] ARGS...: each leading NAME=VALUE is set in yq's environment alone, for strenv(NAME), so a
-          # value never becomes part of an expression. Edits files of the current directory; reads stdin.
-          yq() {
-            local env=()
-            while [[ ${1:-} =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do env+=(--env "$1"); shift; done
-            env -u DOCKER_DEFAULT_PLATFORM docker run --rm -i --network none --user "$(id -u):$(id -g)" \
-              -v "$PWD:/workdir" -w /workdir ${env[@]+"${env[@]}"} "$YQ_IMAGE" "$@"
-          }
-          # open_pr: the number of the open pull request from $branch into main that the app opened, or nothing. A
-          # fork's or a person's from a branch of that name is never the app's; --head matches the bare branch name, so
-          # forks' are listed too, and gh lists 30 by default: the list goes up to 500, and a full one fails rather
-          # than guess. A gh that fails fails too: read as "none", an outage would open a second pull request.
-          open_pr() {
-            local list
-            list=$(gh pr list --repo "$repo" --head "$branch" --base main --state open --limit 500 \
-              --json number,isCrossRepository,author) || fail "list the open pull requests of $branch in $repo"
-            [ "$(jq length <<<"$list")" -lt 500 ] ||
-              fail "500 or more open pull requests from a branch $branch in $repo: close the forks' before promoting"
-            jq -r --arg author "app/$app" \
-              '[.[] | select(.isCrossRepository == false and .author.login == $author)][0].number // empty' <<<"$list"
-          }
           # not_behind WHERE: fails when this run's commit is a proper ancestor of the commit of the release of web that
           # the image file at WHERE names (a ref of svp-gitops): promoting it would take stg back. A file naming
           # another repository, or a tag that is no commit of this clone, cannot be compared and is not guessed.
           not_behind() {
             local r t c
-            if ! r=$(git show "$1:$file" | yq -e .image.repository) || ! t=$(git show "$1:$file" | yq -e .image.tag); then
+            if ! r=$(git show "$1:$file" | yq_ -e .image.repository) || ! t=$(git show "$1:$file" | yq_ -e .image.tag); then
               fail "$file at $1 of svp-gitops has no image.repository and image.tag"
             fi
             [ "$r" = "$image" ] || fail "$file at $1 of svp-gitops names $r, not $image: not guessing whose it is"
@@ -425,11 +408,11 @@ jobs:
           git -c credential.helper= clone --quiet --no-tags "https://github.com/$repo.git" "$RUNNER_TEMP/gitops"
           cd "$RUNNER_TEMP/gitops"
           lease=$(git rev-parse --verify --quiet "refs/remotes/origin/$branch") || lease=
-          pr=$(open_pr)
+          pr=$(promote_open_pr "$repo" "$branch" "$app")
           not_behind origin/main
           if [ -n "$lease" ] && [ -n "$pr" ]; then not_behind "$lease"; fi
           git checkout --quiet -B "$branch" origin/main
-          yq R="$R" T="$T" D="$D" -i \
+          yq_ R="$R" T="$T" D="$D" -i \
             '.image.repository = strenv(R) | .image.tag = strenv(T) | .image.digest = strenv(D)' "$file"
           if git diff --quiet origin/main; then
             echo "main of svp-gitops already runs $R:$T@$D: no push, no pull request."
@@ -453,7 +436,7 @@ jobs:
           git push --quiet --force-with-lease="refs/heads/$branch:$lease" origin "HEAD:refs/heads/$branch"
           # Read again after the push: the pull request read before, merged or closed meanwhile, no longer holds the
           # branch, and editing it would still succeed.
-          now=$(open_pr)
+          now=$(promote_open_pr "$repo" "$branch" "$app")
           [ -z "$pr" ] || [ "$now" = "$pr" ] ||
             fail "pull request #$pr of $branch was merged or closed during this run: run the job again (from main as is)"
           if [ -n "$now" ]; then
