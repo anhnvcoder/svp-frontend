@@ -72,11 +72,13 @@ công cụ ghim digest trong `Makefile` của nó. `make backend-checkout` đưa
 
 `Dockerfile` ở gốc repo, context là gốc repo (`.dockerignore` loại `node_modules`, output build, `.env*`, `.git`, `.backend/` và
 công cụ của repo). Image chạy server standalone của Next trên Node distroless; source map trình duyệt không vào image, nằm ở stage
-`sourcemaps`. Build, quét, ký và promote image phát hành chạy trong CI của repo này bằng script backend ở `.backend-commit`.
+`sourcemaps`. Build, quét, ký image phát hành chạy trong CI của repo này bằng script backend ở `.backend-commit`; promote lên stg là
+bước `yq` + `gh` của chính job `promote`.
 
 ## CI và phát hành
 
-Workflow ở `.github/workflows/` chỉ nối bước; logic nằm ở `Makefile` của repo này và ở `deploy/ci/` của backend, chạy từ `.backend/`
+Workflow ở `.github/workflows/` chỉ nối bước (trừ job `promote`, bước của nó viết ngay trong `images.yml`); logic nằm ở `Makefile` của
+repo này và ở `deploy/ci/` của backend, chạy từ `.backend/`
 với `SVP_CODE_ROOT` trỏ checkout của repo này (script backend chọn nguồn phát hành `web` theo repository, đẩy dưới prefix
 `ghcr.io/anhnvcoder/svp-frontend/`, ký bằng identity của workflow phát hành của repo này). Mọi action ghim SHA commit, `permissions: {}` ở đầu
 file, mọi job của PR chỉ `contents: read` và không secret.
@@ -90,7 +92,10 @@ file, mọi job của PR chỉ `contents: read` và không secret.
   `build` (trivy chặn bí mật và CRITICAL, grype trên SBOM, rồi mới push; source map trình duyệt của mỗi chân đẩy thành
   `ghcr.io/anhnvcoder/svp-frontend/web-sourcemaps:<arch>-<hex của manifest con>`), `merge` (index đa kiến trúc), `sign` (cosign keyless,
   SBOM, attestation `vuln`, build provenance), `promote` (environment `promote`, token một giờ của GitHub App `svp-web-promoter` chỉ
-  trên `svp-gitops`: dựng nhánh `bot/promote-stg-web` chỉ đổi `envs/stg/images/web.yaml`, PR tự merge khi `gitops-ok` xanh), `rescan`
+  trên `svp-gitops`: clone `svp-gitops`, dựng nhánh `bot/promote-stg-web` một commit của bot trên `main`, `yq -i` đúng khối `image` của
+  `envs/stg/images/web.yaml` (không bao giờ `envs/stg/charts.yaml`), từ chối commit cũ hơn bản web mà `main` hay PR đang mở ghi (so tổ
+  tiên), push `--force-with-lease`, `gh pr create`/`edit`, `gh pr merge --auto --squash --match-head-commit`: PR tự merge khi
+  `gitops-ok` xanh), `rescan`
   (lịch hằng ngày: quét lại và attest lại bản web của repo này đang ở `envs/*/images/`, không đụng bản của backend), `sarif`, check
   tổng `images-ok`.
 - Ruleset `main` (`.github/rulesets/main.json`): PR bắt buộc, `ci-ok` và `images-ok` từ app GitHub Actions, cấm xoá và force push, không
