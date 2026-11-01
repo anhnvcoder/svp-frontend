@@ -40,6 +40,7 @@ sách gói được dùng: [ADR-0016](https://github.com/anhnvcoder/svp-backend/
 | `make lockfile-scan`                                                                        | trivy quét `pnpm-lock.yaml` (gồm dev dependency); còn CRITICAL sau `.trivyignore.yaml` là đỏ                                                       |
 | `make backend-checkout`                                                                     | checkout backend ở commit của `.backend-commit` vào `.backend/` (các target trên tự gọi khi cần)                                                   |
 | `make tools`                                                                                | cài `gitleaks`, `actionlint` bằng `go install` đúng version mà `Makefile` của backend ghim (cần Go)                                                |
+| `make zizmor`                                                                               | lint bảo mật mọi workflow bằng zizmor ghim digest (`ZIZMOR_IMAGE`); trên máy chỉ offline, có `GH_TOKEN` (CI) thì thêm audit online                 |
 | `make stg-revision`                                                                         | in commit backend mà stg đang chạy (`revision` của `envs/stg/charts.yaml` trong bản clone `svp-gitops`: `SVP_GITOPS_DIR` hay `<workspace>/gitops`) |
 | `make stg-check`                                                                            | đỏ khi backend (`SVP_BACKEND_DIR`) không ở đúng commit đó hay chưa có chế độ `make up IMAGES=stg`                                                  |
 | `make e2e`, `make measure-web`, `make measure-upload`, `make lighthouse`, `make sourcemaps` | chạy trên stack compose của backend (`make up` ở backend; `OBS=lgtm` cho source map)                                                               |
@@ -85,8 +86,10 @@ với `SVP_CODE_ROOT` trỏ checkout của repo này (script backend chọn ngu�
 file, mọi job của PR chỉ `contents: read` và không secret.
 
 - `ci.yml` (PR, push `main`, chạy tay): `check` (`make install`, `make check`, `make generate-check`, `make lockfile-scan`), `config`
-  (luật của `.trivyignore.yaml` và `.grype.yaml`, `actionlint`), `gitleaks` (toàn lịch sử), `sarif` (chỉ `main`), check
-  tổng `ci-ok` (đủ `check`, `config`, `gitleaks`). Job `stack` (chỉ báo, ngoài `ci-ok`): đọc commit backend mà stg chạy
+  (luật của `.trivyignore.yaml` và `.grype.yaml`, `actionlint`), `gitleaks` (toàn lịch sử), `zizmor` (`make zizmor`, mọi finding
+  chặn trừ ngoại lệ có lý do ở `.github/zizmor.yml`), `dependency-review` (chỉ PR: dependency PR thêm hay đổi có lỗ hổng high trở lên
+  là đỏ), `sarif` (chỉ `main`), check tổng `ci-ok` (đủ năm job trên, chỉ `dependency-review` được `skipped` khi sự kiện không phải
+  PR). Job `stack` (chỉ báo, ngoài `ci-ok`): đọc commit backend mà stg chạy
   (`make stg-revision`), checkout backend ở commit đó (`make stg-check`), `make up IMAGES=stg WEB_FROM=clone` của backend (sáu service
   backend là bản phát hành của stg theo digest, web build từ PR này), `make smoke`, `make e2e`, `make lighthouse` (đỏ không làm job đỏ).
 - `images.yml` (PR, push `main`, chạy tay, lịch hằng ngày): `plan`; PR chỉ `build-nopush` (build, quét hai chân amd64, arm64); `main`:
@@ -101,8 +104,18 @@ file, mọi job của PR chỉ `contents: read` và không secret.
   `gitops-ok` xanh), `rescan`
   (lịch hằng ngày: quét lại và attest lại bản web của repo này đang ở `envs/*/images/`, không đụng bản của backend), `sarif`, check
   tổng `images-ok`.
-- Ruleset `main` (Terraform ở `github/rulesets.tf` của `svp-infra`): PR bắt buộc, `ci-ok` và `images-ok` từ app GitHub Actions, cấm xoá và force push, không
-  ai bypass. Promote prd làm ở backend (chép giá trị `envs/stg/` của `svp-gitops` ở `stg_ref` vào `envs/prd/`, PR do Code Owner duyệt).
-- Renovate (App Mend, `renovate.json`): PR `patch`, `digest` của gói npm, pnpm, Node, base image và service container của CI tự merge
-  khi `ci-ok`, `images-ok` xanh (auto-merge của GitHub, squash; repo phải bật "Allow auto-merge"), nên vào stg như một merge tay; PR của
-  action, `.backend-commit`, `api/contract.json` và mọi minor, major chờ người duyệt ([ADR-0035](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0035-renovate-automerge.md)).
+- `pr-title.yml` (PR mở, sửa, mở lại, push mới): job `pr-title` kiểm tiêu đề PR, cũng là tiêu đề commit squash, theo Conventional
+  Commits: `<type>[(<scope>)][!]: <mô tả>`, type là `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`, `build`, `perf`, `revert`,
+  hay `Revert "<tiêu đề>"` của nút Revert; không danh sách scope, nên `chore(deps): …`, `fix(deps): …` của Renovate và
+  `chore: ghim backend …` qua nguyên ([ADR-0041](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0041-github-hardening.md) (h)).
+- `scorecard.yml` (push `main`, lịch tuần): OpenSSF Scorecard của repo, kết quả công khai và lên code scanning.
+- Ruleset `main` (Terraform ở `github/rulesets.tf` của `svp-infra`): PR bắt buộc, `ci-ok` và `images-ok` từ app GitHub Actions, chỉ squash,
+  lịch sử thẳng, cấm xoá và force push, không ai bypass. Ruleset `owners`: PR đổi đường có chủ trong `CODEOWNERS` (`.github/`,
+  `.backend-commit`, `Makefile`, `pnpm-workspace.yaml`, `renovate.json`, `.trivyignore.yaml`, `.grype.yaml`, chính `CODEOWNERS`) cần Code Owner duyệt. Promote prd làm ở backend (chép giá trị `envs/stg/` của `svp-gitops` ở `stg_ref` vào `envs/prd/`) qua hai cổng: người học duyệt environment `promote-prd` của `svp-backend` (admin không bypass, trước khi job lấy khoá App), rồi Code Owner duyệt PR prd ở `svp-gitops`.
+- Renovate (App Mend, `renovate.json`): chỉ PR `patch` của npm `devDependencies` chạy trên máy dev và CI tự merge khi `ci-ok`,
+  `images-ok` xanh (auto-merge của GitHub, squash; repo phải bật "Allow auto-merge"), nên vào stg như một merge tay; không file nào tự
+  merge có Code Owner. Chờ người duyệt: npm `dependencies`; `typescript`, `tailwindcss`, `@tailwindcss/postcss` (chạy trong `next build`
+  của image, output vào image); pnpm; Node cùng mọi digest của base image trong `Dockerfile` (`.nvmrc`, `engines` và tag của hai image chỉ
+  ghi major, nên mỗi bản minor, patch của Node đến dưới dạng digest mới); image của workflow, công cụ ghim trong `Makefile`, action,
+  `.backend-commit`, `api/contract.json` và mọi minor, major
+  ([ADR-0041](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0041-github-hardening.md) (i)).
