@@ -72,8 +72,9 @@ build provenance, helper của job `promote`) và công cụ ghim digest trong `
 
 `Dockerfile` ở gốc repo, context là gốc repo (`.dockerignore` loại `node_modules`, output build, `.env*`, `.git`, `.backend/` và
 công cụ của repo). Image chạy server standalone của Next trên Node distroless; source map trình duyệt không vào image, nằm ở stage
-`sourcemaps`. Build, quét, ký image phát hành chạy trong CI của repo này bằng script backend ở `.backend-commit`; promote lên stg là
-bước `yq` + `gh` của chính job `promote` (helper `yq_`, `promote_open_pr` của `deploy/ci/common.sh` ở commit ghim).
+`sourcemaps` (`make sourcemaps`, `make k8s-sourcemaps` tải lên GlitchTip của stack local). Build, quét, ký image phát hành chạy trong CI
+của repo này bằng script backend ở `.backend-commit`; promote lên stg là bước `yq` + `gh` của chính job `promote` (helper `yq_`,
+`promote_open_pr`, `promote_image_row` của `deploy/ci/common.sh` ở commit ghim).
 
 ## CI và phát hành
 
@@ -84,13 +85,13 @@ với `SVP_CODE_ROOT` trỏ checkout của repo này (script backend chọn ngu�
 file, mọi job của PR chỉ `contents: read` và không secret.
 
 - `ci.yml` (PR, push `main`, chạy tay): `check` (`make install`, `make check`, `make generate-check`, `make lockfile-scan`), `config`
-  (cổng tệp bỏ qua của trivy, `actionlint`), `gitleaks` (toàn lịch sử), `sarif` (chỉ `main`), check
+  (luật của `.trivyignore.yaml` và `.grype.yaml`, `actionlint`), `gitleaks` (toàn lịch sử), `sarif` (chỉ `main`), check
   tổng `ci-ok` (đủ `check`, `config`, `gitleaks`). Job `stack` (chỉ báo, ngoài `ci-ok`): đọc commit backend mà stg chạy
   (`make stg-revision`), checkout backend ở commit đó (`make stg-check`), `make up IMAGES=stg WEB_FROM=clone` của backend (sáu service
   backend là bản phát hành của stg theo digest, web build từ PR này), `make smoke`, `make e2e`, `make lighthouse` (đỏ không làm job đỏ).
 - `images.yml` (PR, push `main`, chạy tay, lịch hằng ngày): `plan`; PR chỉ `build-nopush` (build, quét hai chân amd64, arm64); `main`:
-  `build` (trivy chặn bí mật và CRITICAL, grype trên SBOM, rồi mới push; source map trình duyệt của mỗi chân đẩy thành
-  `ghcr.io/anhnvcoder/svp-frontend/web-sourcemaps:<arch>-<hex của manifest con>`), `merge` (index đa kiến trúc), `sign` (cosign keyless,
+  `build` (trivy chặn bí mật và CRITICAL còn lại sau `.trivyignore.yaml`, grype trên SBOM chặn Critical còn lại sau `.grype.yaml`,
+  rồi mới push), `merge` (index đa kiến trúc), `sign` (cosign keyless,
   SBOM, attestation `vuln`, build provenance), `promote` (environment `promote`, token một giờ của GitHub App `svp-web-promoter` chỉ
   trên `svp-gitops`: clone `svp-gitops`, dựng nhánh `bot/promote-stg-web` một commit của bot trên `main`, `yq_ -i` (yq theo
   `YQ_IMAGE` ghim digest trong `Makefile` của backend ở `.backend-commit`, không mạng) đúng khối `image` của

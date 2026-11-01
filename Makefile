@@ -195,9 +195,10 @@ check: ## Lint, format check, typecheck, unit tests (Redis db 15), production bu
 
 # Vulnerability gate of the npm dependencies, read from the lockfile: the image shows trivy only the few packages left
 # in its node_modules, since the bundler folds the server's dependencies into its chunks. Development dependencies
-# count too: they run in CI and build the bundle that ships. The backend's deploy/ci/scan-gate.sh (.backend/) decides
-# as for an image, with .trivyignore.yaml of this repository: any CRITICAL left after it fails, fixed upstream or not;
-# HIGH and below are only counted. Only the lockfile is mounted (read-only), at pnpm-lock.yaml of the scan root so the
+# count too: they run in CI and build the bundle that ships. trivy decides from its own flags (convert --exit-code
+# --severity CRITICAL), with .trivyignore.yaml of this repository: any CRITICAL left after it fails, fixed upstream or
+# not, and its table is printed; HIGH also goes to the SARIF, lower severities nowhere. Only the lockfile is mounted
+# (read-only), at pnpm-lock.yaml of the scan root so the
 # findings point at the file of the repository. A report with no npm package fails too: a lockfile format trivy no
 # longer reads would otherwise pass with nothing scanned. trivy runs from the image the backend's Makefile pins and
 # needs the network for its DB; a DB it cannot download fails the target: no scan against a DB of unknown age.
@@ -228,7 +229,9 @@ lockfile-scan: backend-checkout ## trivy fs on pnpm-lock.yaml, dev dependencies 
 	if [ -n "$(LOCKFILE_SARIF)" ]; then \
 	  trivy "$$@" -v "$$(dirname "$(LOCKFILE_SARIF)"):/sarif" "$$image" convert --format sarif \
 		--severity HIGH,CRITICAL --output "/sarif/$$(basename "$(LOCKFILE_SARIF)")" /out/trivy.json || exit 1; fi; \
-	SVP_CODE_ROOT='$(CURDIR)' .backend/deploy/ci/scan-gate.sh --fs "$$label" "$$tmp/trivy.json"
+	trivy "$$@" "$$image" convert --exit-code 1 --severity CRITICAL --ignorefile /ignore.yaml --format table \
+		--table-mode detailed /out/trivy.json || { echo "FAIL  $$label: CRITICAL left after .trivyignore.yaml" >&2; exit 1; }; \
+	echo "ok    $$label: no CRITICAL left after .trivyignore.yaml"
 
 # Both need the backend's compose stack (make up there) and the Playwright browsers (pnpm exec playwright install
 # chromium webkit). LOCAL LAB ONLY: the seed (e2e/seed.sh) and every Playwright worker (e2e/fixtures.ts) delete the
@@ -255,14 +258,11 @@ lighthouse: ## Lighthouse (mobile, one run per page) of the feed logged in and /
 sourcemaps: ## Upload the source maps of the browser bundle, from the build the backend's stack (make up OBS=lgtm) runs, to its GlitchTip (http://127.0.0.1:8000); checks first that the web serves that build
 	@$(NODE) $(BACKEND) bash "$$SVP_BACKEND_DIR/deploy/observability/glitchtip/sourcemaps.sh" compose
 
-# The same for cluster svp of the backend: built with the build id its make k8s-up gave the image, or with
-# SOURCEMAPS_DIR read from a folder of chunks and maps made by an earlier build (CI's of the image the GitOps cluster
-# runs); either way checked against the chunks https://svp.localhost:8443 serves, uploaded through a port-forward of
-# its own on 127.0.0.1:8000, closed at the end.
-SOURCEMAPS_DIR ?=
-k8s-sourcemaps: ## Upload the source maps of the browser bundle, from the build cluster svp runs (SOURCEMAPS_DIR=<absolute folder> takes that folder's chunks and maps instead of a build), to its GlitchTip; checks first that the web serves that build (port 127.0.0.1:8000 must be free)
-	@$(NODE) $(BACKEND) bash "$$SVP_BACKEND_DIR/deploy/observability/glitchtip/sourcemaps.sh" k3d \
-		$(if $(SOURCEMAPS_DIR),'$(SOURCEMAPS_DIR)')
+# The same for cluster svp of the backend: built with the build id its make k8s-up gave the image, checked against the
+# chunks https://svp.localhost:8443 serves, uploaded through a port-forward of its own on 127.0.0.1:8000, closed at the
+# end.
+k8s-sourcemaps: ## Upload the source maps of the browser bundle, from the build cluster svp runs, to its GlitchTip; checks first that the web serves that build (port 127.0.0.1:8000 must be free)
+	@$(NODE) $(BACKEND) bash "$$SVP_BACKEND_DIR/deploy/observability/glitchtip/sourcemaps.sh" k3d
 
 # The end-to-end tests against the backend's cluster svp at https://svp.localhost:8443, through e2e/k3d-e2e.sh: it
 # checks the backend's .k8s/ca.crt and the cluster, sets SVP_STACK=k3d and the CA for curl and Node, and with

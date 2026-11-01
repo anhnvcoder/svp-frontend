@@ -21,7 +21,7 @@ Quy ước chung (ngôn ngữ, tài liệu timeless, ADR, comment, Git, repo pub
   gì trong đó. Harness của stack (compose, cluster, xoá khoá rate limit) đọc từ bản clone backend của workspace (`SVP_BACKEND_DIR`,
   mặc định `<workspace>/backend`); không chép script nào giữa hai repo. Riêng job `promote` của `images.yml` không chạy script backend nào:
   bước của nó viết ngay trong workflow, chỉ source `.backend/deploy/ci/common.sh` để dùng `yq_` (yq theo `YQ_IMAGE` ghim digest trong
-  `Makefile` của backend) và `promote_open_pr`, rồi chỉ ghi khối `image` của `envs/stg/images/web.yaml` trên nhánh `bot/promote-stg-web`
+  `Makefile` của backend), `promote_open_pr` và `promote_image_row`, rồi chỉ ghi khối `image` của `envs/stg/images/web.yaml` trên nhánh `bot/promote-stg-web`
   của `svp-gitops` và bật auto-merge cho PR.
 - **Docker** chạy với tiền tố `env -u DOCKER_DEFAULT_PLATFORM` (shell global đặt `linux/amd64` cho dự án khác; image phải đúng kiến
   trúc máy). Stack compose và cluster k3d chỉ dựng bằng `Makefile` của backend.
@@ -69,4 +69,4 @@ Chỉ dùng Redis local `127.0.0.1:6379`, luôn ghi rõ port (`redis-cli -p 6379
 ## An toàn cloud
 
 AI không chạy lệnh nào chạm tài khoản AWS/GCP hay cluster cloud, kể cả lệnh chỉ đọc; soạn lệnh để người học tự chạy, như mục "An toàn
-cloud" của `AGENTS.md` backend.
+cloud và chuỗi cung ứng" của `AGENTS.md` backend.

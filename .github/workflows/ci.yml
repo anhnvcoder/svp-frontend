@@ -1,10 +1,10 @@
 # Checks of every pull request and of every push to main: lint, format, typecheck, unit tests, production build and
 # bundle budgets (make check), gen/api.d.ts as generated from the released API contract (make generate-check), the
-# vulnerability gate of the lockfile (make lockfile-scan), the rules of .trivyignore.yaml, the platform guard of the
-# CI scripts, actionlint, and the secret scan of the whole git history. Job ci-ok is the only check the ruleset of main
-# requires from this workflow, so the other jobs can be renamed or added without touching it. Job stack runs this pull
-# request's web client end to end against the backend staging runs, as a report outside ci-ok, so a flaky run on a
-# shared runner never blocks a merge.
+# vulnerability gate of the lockfile (make lockfile-scan), the rules of .trivyignore.yaml and .grype.yaml, the platform
+# guard of the CI scripts, actionlint, and the secret scan of the whole git history. Job ci-ok is the only check the
+# ruleset of main requires from this workflow, so the other jobs can be renamed or added without touching it. Job stack
+# runs this pull request's web client end to end against the backend staging runs, as a report outside ci-ok, so a
+# flaky run on a shared runner never blocks a merge.
 #
 # The scripts shared with the backend repository (scan gate, platform guard) and the versions of its pinned tools are
 # read from .backend/, the backend checked out at the commit of .backend-commit (make backend-checkout), the one place
@@ -96,8 +96,8 @@ jobs:
       # Checks the digest, version and signature of the released contract, anonymously over the network, before it
       # compares; writes nothing under gen/.
       - run: make generate-check
-      # Any CRITICAL in pnpm-lock.yaml (development dependencies included) fails the job; HIGH and below are only
-      # counted in the job summary and the SARIF. It runs even when a step above failed, so a pull request always shows
+      # Any CRITICAL in pnpm-lock.yaml (development dependencies included) fails the job; HIGH goes only to the
+      # SARIF. It runs even when a step above failed, so a pull request always shows
       # the gate's result. The SARIF is written before the gate decides; job sarif uploads it on main.
       - name: make lockfile-scan
         if: ${{ !cancelled() }}
@@ -126,7 +126,7 @@ jobs:
           path: ${{ runner.temp }}/trivy-lockfile.sarif
           if-no-files-found: ignore
 
-  # What no test covers: the rules of .trivyignore.yaml and the workflows themselves.
+  # What no test covers: the rules of .trivyignore.yaml and .grype.yaml, and the workflows themselves.
   config:
     runs-on: ubuntu-24.04
     permissions:
@@ -137,9 +137,10 @@ jobs:
           persist-credentials: false
       # The backend at .backend-commit, anonymously over HTTPS: no token, no secret.
       - run: make backend-checkout
-      # Here and not only in the lockfile gate: a broken entry merged into main would stop the image gate and the daily
-      # rescan of the web release too. Needs no image, no tool and no token.
-      - name: Rules of .trivyignore.yaml
+      # The only place an expired entry fails (grype reads no date, so its rule would go on covering the match), and a
+      # broken entry or rule merged into main would stop the image gate and the daily rescan of the web release. Needs
+      # no image, no tool and no token.
+      - name: Rules of .trivyignore.yaml and .grype.yaml
         run: SVP_CODE_ROOT="$PWD" .backend/deploy/ci/scan-gate.sh --check-ignorefile
       # Go only to build the two pinned tools below, at the Go of the backend's go.mod: no second pin.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

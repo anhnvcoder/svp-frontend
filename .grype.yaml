@@ -1,0 +1,15 @@
+# Vulnerabilities grype leaves out of the scan of the web image's SBOM (the backend's deploy/ci/build-image.sh, run from
+# .backend/ by images.yml). grype reads this file whole (-c), so it holds only rules of this shape:
+#
+#   - vulnerability: <id>
+#     include-aliases: true
+#     package:
+#       name: <name of the purl, every regex metacharacter escaped with \>
+#       version: <version>
+#
+# Each rule is one entry of .trivyignore.yaml in force, the same id and package version, where the reason and the date
+# are (the backend's deploy/ci/scan-gate.sh --check-ignorefile enforces both in job config of ci.yml). grype reads no
+# date: remove or renew the rule with its entry.
+#
+# Empty: every entry of .trivyignore.yaml is for a dev dependency of pnpm-lock.yaml that never reaches the image.
+ignore: []
