@@ -26,10 +26,14 @@ Quy ước chung (ngôn ngữ, tài liệu timeless, ADR, comment, Git, repo pub
   với `images.yml` của backend) attest digest index mà `sign-image.sh` trả ra, sau chữ ký và `vuln`.
 - **Docker** chạy với tiền tố `env -u DOCKER_DEFAULT_PLATFORM` (shell global đặt `linux/amd64` cho dự án khác; image phải đúng kiến
   trúc máy). Stack compose và cluster k3d chỉ dựng bằng `Makefile` của backend.
-- **Renovate** (`renovate.json`, sáng thứ Bảy, `minimumReleaseAge` 3 ngày trừ cảnh báo lỗ hổng): bản `patch`, `digest` của gói npm, pnpm,
-  Node (`.nvmrc`), base image của `Dockerfile` và service container của CI tự merge (auto-merge của GitHub, squash) khi `ci-ok`,
-  `images-ok` xanh; action, `.backend-commit`, `api/contract.json`, minor, major giữ duyệt tay ([ADR-0035](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0035-renovate-automerge.md)).
-- **Git:** mọi thay đổi vào `main` đi qua PR có `ci-ok` và `images-ok` xanh.
+- **Renovate** (`renovate.json`, sáng thứ Bảy, `minimumReleaseAge` 3 ngày trừ cảnh báo lỗ hổng): chỉ `patch` của npm `devDependencies`
+  chạy trên máy dev và CI tự merge (auto-merge của GitHub, squash) khi `ci-ok`, `images-ok` xanh; npm `dependencies`, `typescript`,
+  `tailwindcss`, `@tailwindcss/postcss` (chạy trong `next build`, output vào image), pnpm, Node cùng mọi digest của base image trong
+  `Dockerfile` (Node minor, patch đến dưới dạng digest), image của workflow, công cụ ghim trong `Makefile`, action, `.backend-commit`,
+  `api/contract.json`, minor, major giữ duyệt tay ([ADR-0041](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0041-github-hardening.md) (i)).
+  Luật tự merge không được chạm đường có chủ trong `CODEOWNERS`.
+- **Git:** mọi thay đổi vào `main` đi qua PR có `ci-ok` và `images-ok` xanh; tiêu đề PR (thành tiêu đề commit squash) theo Conventional
+  Commits, check `pr-title` của `pr-title.yml` kiểm.
 
 ## Kiểm tra
 
@@ -39,7 +43,7 @@ Quy ước chung (ngôn ngữ, tài liệu timeless, ADR, comment, Git, repo pub
   `make k8s-e2e`, `make k8s-sourcemaps`) cần stack của backend đang chạy; máy 16 GB: không chạy compose và k3d cùng lúc.
 - CI chạy lại trên máy: job `check` là ba lệnh đầu cộng `make lockfile-scan`; job `config` là `make backend-checkout`, rồi
   `SVP_CODE_ROOT="$PWD" .backend/deploy/ci/scan-gate.sh --check-ignorefile` và
-  `actionlint` (`make tools` cài).
+  `actionlint` (`make tools` cài); job `zizmor` là `make zizmor` (trên máy chỉ offline, không truyền token vào container).
 
 ## Quy ước test
 

@@ -37,7 +37,7 @@ SVP_TEST_REDIS_URL ?= redis://127.0.0.1:6379/15
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install dev backend-checkout tools stg-revision stg-check generate generate-check check lockfile-scan e2e \
+.PHONY: help install dev backend-checkout tools zizmor stg-revision stg-check generate generate-check check lockfile-scan e2e \
 	measure-web measure-upload lighthouse sourcemaps k8s-sourcemaps k8s-e2e
 
 help: ## List the targets
@@ -69,6 +69,24 @@ tools: backend-checkout ## Install gitleaks and actionlint, at the versions the 
 	    { echo "$$var is not pinned to one version vX.Y.Z in .backend/Makefile" >&2; exit 1; }; \
 	  echo "go install $$package@$$version"; go install "$$package@$$version" || exit 1; \
 	done
+
+# Security lint of the workflows (ADR-0041 (g)): zizmor with the regular persona on the whole repository, from its
+# official image pinned by digest (multi-arch: the same reference on an arm64 dev machine and an amd64 runner), the
+# repository mounted read-only. Every finding fails (exit codes 11 to 14); the deliberate ones are left out in
+# .github/zizmor.yml, each with its reason. With GH_TOKEN set (CI passes the job's read-only GITHUB_TOKEN) the online
+# audits run too (impostor commits, actions with known vulnerabilities); without it, offline audits only.
+# ZIZMOR_FORMAT=github writes workflow commands (annotations in CI); ZIZMOR_SARIF=<path> writes a SARIF report there
+# instead and never fails on a finding (the report of the code scanning upload).
+# renovate: datasource=docker depName=ghcr.io/zizmorcore/zizmor
+ZIZMOR_IMAGE := ghcr.io/zizmorcore/zizmor:1.31.1@sha256:42d409dbb851d4c5d35a058cf042b828bea1e3f2884378c526eb0974780e18d9
+ZIZMOR_FORMAT ?= plain
+ZIZMOR_SARIF ?=
+zizmor: ## Security lint of the workflows with the pinned zizmor (online audits with GH_TOKEN; ZIZMOR_FORMAT=github, ZIZMOR_SARIF=<path>)
+	@if [ -n "$${GH_TOKEN:-}" ]; then net="--env=GH_TOKEN"; else net="--env=ZIZMOR_OFFLINE=true --network=none"; fi; \
+	if [ -n "$(ZIZMOR_SARIF)" ]; then set -- --format=sarif --no-exit-codes; else set -- --format='$(ZIZMOR_FORMAT)'; fi; \
+	env -u DOCKER_DEFAULT_PLATFORM docker run --rm --user "$$(id -u):$$(id -g)" $$net -v "$(CURDIR):/src:ro" --workdir /src \
+		$(ZIZMOR_IMAGE) --persona=regular --no-progress --color=never --cache-dir /tmp/zizmor "$$@" . \
+		$(if $(ZIZMOR_SARIF),> '$(ZIZMOR_SARIF)')
 
 # Which backend the end-to-end runs against staging use (scripts/backend.sh says how): the commit envs/stg/charts.yaml
 # of the clone of svp-gitops names (SVP_GITOPS_DIR, default <workspace>/gitops), and a check that the backend of
