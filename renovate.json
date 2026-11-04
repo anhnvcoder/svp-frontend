@@ -45,7 +45,7 @@
       "datasourceTemplate": "docker"
     },
     {
-      "description": "Images pinned as <image>:<tag>@sha256:<digest> with a '# renovate: datasource=docker depName=<image>' line right above (ZIZMOR_IMAGE of the Makefile).",
+      "description": "Images pinned as <image>:<tag>@sha256:<digest> with a '# renovate: datasource=docker depName=<image>' line right above (ZIZMOR_IMAGE, MARKDOWNLINT_IMAGE, LYCHEE_IMAGE of the Makefile).",
       "customType": "regex",
       "managerFilePatterns": ["/^Makefile$/"],
       "matchStrings": [
@@ -73,7 +73,7 @@
       "automerge": false
     },
     {
-      "description": "Pinned tools of the Makefile (ZIZMOR_IMAGE): one pull request, always merged by hand (the Makefile has a Code Owner).",
+      "description": "Pinned tools of the Makefile (ZIZMOR_IMAGE, MARKDOWNLINT_IMAGE, LYCHEE_IMAGE): one pull request, always merged by hand (the Makefile has a Code Owner).",
       "matchFileNames": ["Makefile"],
       "groupName": "tools",
       "automerge": false

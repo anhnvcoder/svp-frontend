@@ -36,8 +36,6 @@ duyệt (kéo file vào cửa sổ, hoặc `open "design/SVP Mobile.dc.html"`); 
 ## Quy ước đã chốt
 
 - Feed mobile dùng **cột hành động bên phải** (M01–M12). Biến thể "viên nổi" (M43–M45, `layout="pill"` trong `FeedMobile`) bỏ.
-- Tải lên, hồ sơ, video của tôi và trang chia sẻ công khai nằm ở phần sau của giai đoạn web; thiết kế đã có sẵn nhưng chưa
-  hiện thực.
 
 ## Chỗ khi hiện thực không chép nguyên
 
