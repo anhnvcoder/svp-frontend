@@ -40,9 +40,58 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Which areas a pull request changes, so a job whose area it leaves alone skips and ci-ok accepts that skip. Each
+  # output is true or false:
+  #   code       any file but documentation (Markdown, docs/, LICENSE): jobs check, config;
+  #   workflows  .github/: job zizmor;
+  #   stack      anything the web client runs or is tested from: every file but documentation and .github/.
+  # gitleaks, docs and dependency-review always run. A change of the Makefile, of .backend-commit (the backend's
+  # scripts and pinned tools) or of this workflow, a push and a dispatch turn every output true: when in doubt, run.
+  # The list comes from GitHub's API for the pull request, not from git, so no history is fetched.
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      code: ${{ steps.files.outputs.code }}
+      workflows: ${{ steps.files.outputs.workflows }}
+      stack: ${{ steps.files.outputs.stack }}
+    steps:
+      - id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          docs='^docs/|^LICENSE$|\.md$'
+          if [ "$EVENT" = pull_request ]; then
+            files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          else
+            files=Makefile
+          fi
+          printf '%s\n' "$files"
+          # any REGEX [EXCLUDE]: true when a file matches REGEX and not EXCLUDE.
+          any() {
+            if printf '%s\n' "$files" | grep -E -- "$1" | grep -v -E -e "${2:-^$}" | grep -q .; then echo true; else echo false; fi
+          }
+          everything=$(any '^Makefile$|^\.backend-commit$|^\.github/workflows/ci\.yml$')
+          {
+            if [ "$everything" = true ]; then
+              printf '%s=true\n' code workflows stack
+            else
+              echo "code=$(any '.' "$docs")"
+              echo "workflows=$(any '^\.github/')"
+              echo "stack=$(any '.' "$docs|^\.github/")"
+            fi
+          } | tee -a "$GITHUB_OUTPUT"
+
   # Install exactly as pnpm-lock.yaml pins it, make check, gen/api.d.ts as committed, and the vulnerability gate of
   # every npm package the lockfile pins.
   check:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -130,6 +179,8 @@ jobs:
 
   # What no test covers: the rules of .trivyignore.yaml and .grype.yaml, and the workflows themselves.
   config:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -213,6 +264,8 @@ jobs:
   # condition: ci-ok is red when this job is red or skipped. The SARIF report beside it is for the code scanning
   # upload of job sarif and never fails.
   zizmor:
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -280,6 +333,8 @@ jobs:
   # register rate limit keys in Redis db 10) touch only the Redis service container below, which belongs to this run.
   stack:
     name: stack (end-to-end on the backend of staging, outside ci-ok)
+    needs: changes
+    if: needs.changes.outputs.stack == 'true'
     runs-on: ubuntu-24.04
     # Six pulls, one image build, the e2e seed, two browsers. The limit leaves room for a slow runner and stops a hung
     # step long before GitHub's default of 6 hours.
@@ -464,11 +519,11 @@ jobs:
 
   # The required check. It runs whatever happened before it (always()) and fails unless every check job succeeded:
   # GitHub counts a skipped required check as passed, and a job that failed or was cancelled does not fail the jobs
-  # that need it by itself. Of the six, only dependency-review has a condition (pull requests only): its skip is
-  # accepted on any other event, and nowhere else. Any other skip can only mean a wrong if: and is red too. No
-  # condition may ever skip ci-ok itself.
+  # that need it by itself. Two kinds of skip are part of a run: dependency-review outside pull requests, and a job
+  # whose area job changes found untouched. Any other skip can only mean a wrong if: and is red too. No condition may
+  # ever skip ci-ok itself.
   ci-ok:
-    needs: [check, config, gitleaks, zizmor, dependency-review, docs]
+    needs: [changes, check, config, gitleaks, zizmor, dependency-review, docs]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}
@@ -479,8 +534,12 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$NEEDS"
-          # skip_ok: the one skip that is part of a run: dependency-review outside pull requests.
+          # skip_ok: the skips that are part of a run: dependency-review outside pull requests, and a job whose area
+          # job changes found untouched (changes succeeded and set that job's output to false).
           jq -e --arg event "$EVENT" '
-            def skip_ok: .key == "dependency-review" and $event != "pull_request";
-            length == 6 and all(to_entries[]; .value.result == "success" or (.value.result == "skipped" and skip_ok))
+            .changes as $changes
+            | {"check": "code", "config": "code", "zizmor": "workflows"} as $area
+            | def skip_ok: (.key == "dependency-review" and $event != "pull_request")
+                or ($changes.result == "success" and $area[.key] != null and $changes.outputs[$area[.key]] == "false");
+            length == 7 and all(to_entries[]; .value.result == "success" or (.value.result == "skipped" and skip_ok))
           ' <<< "$NEEDS" > /dev/null
