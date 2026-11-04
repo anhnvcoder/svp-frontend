@@ -28,8 +28,8 @@ export type UploadFailure =
   | "rate-limited"
   // The session is gone: the page sends the user to log in.
   | "unauthorized"
-  // The form could not be had (network, 5xx, 4xx). Not retried by itself: a request lost on the way may have created
-  // a video anyway, and each one takes one of the user's 3 upload slots.
+  // The form could not be had: a 4xx, or the network or a 5xx within the retries. The user posts the video again, which
+  // is a new video with a new key.
   | "init-failed"
   // upload_url is not on UPLOAD_ORIGIN: nothing was sent.
   | "bad-origin"
@@ -112,7 +112,9 @@ const maxBackoffMs = 8000;
 const renewBeforeMs = 60_000;
 const speedWindowMs = 1000;
 
-type Attempt<T> = { kind: "done"; value: T } | { kind: "again" } | { kind: "retry"; afterMs?: number };
+// `exhausted` overrides the failure of attempts() when this retry turns out to be the last one.
+type Attempt<T> =
+  { kind: "done"; value: T } | { kind: "again" } | { kind: "retry"; afterMs?: number; exhausted?: UploadFailure };
 
 interface HeldForm {
   value: UploadForm;
@@ -255,7 +257,7 @@ export function createUploadStore(deps: Partial<UploadDeps> = {}): UploadStore {
         continue;
       }
       if (retries >= maxRetries) {
-        throw new Failed(exhausted);
+        throw new Failed(result.exhausted ?? exhausted);
       }
       const backoff = random() * Math.min(maxBackoffMs, 1000 * 2 ** retries);
       retries += 1;
@@ -264,16 +266,19 @@ export function createUploadStore(deps: Partial<UploadDeps> = {}): UploadStore {
     }
   }
 
-  // Asks for an upload form, which creates a video. Only a rate limit is retried by itself: the gateway refused the
-  // request, so no video was created.
+  // Asks for an upload form, which creates a video. One key names that video across the retries of this call, so a
+  // request lost on the way is retried without creating a second video; a new form (renewing) is a new video and gets
+  // a new key, as the key of the first one would answer with that video's form, or not at all once its window ended.
   async function obtainForm(job: Job): Promise<void> {
     const signal = job.controller.signal;
     const renewing = job.form !== null;
-    const form = await attempts(job, "rate-limited", async (): Promise<Attempt<UploadForm>> => {
+    const idempotencyKey = `"${crypto.randomUUID()}"`;
+    const form = await attempts(job, "init-failed", async (): Promise<Attempt<UploadForm>> => {
       update(job, { status: renewing ? "sending" : "preparing", waitingFor: null });
       try {
         const value = await initUpload(
           { title: job.upload.title, sizeBytes: job.file.size, contentType: job.contentType },
+          idempotencyKey,
           signal,
         );
         return { kind: "done", value };
@@ -281,17 +286,23 @@ export function createUploadStore(deps: Partial<UploadDeps> = {}): UploadStore {
         if (signal.aborted) {
           throw new Cancelled();
         }
-        if (error instanceof UploadApiError) {
-          if (error.status === 401) {
-            throw new Failed("unauthorized");
-          }
-          if (error.status === 429 && error.code === "TOO_MANY_UPLOADS") {
-            throw new Failed("too-many-uploads");
-          }
-          if (error.status === 429) {
-            return { kind: "retry", afterMs: (error.retryAfterSeconds ?? 1) * 1000 };
-          }
+        if (!(error instanceof UploadApiError)) {
+          // No answer: offline or the connection broke.
+          return { kind: "retry" };
         }
+        if (error.status === 401) {
+          throw new Failed("unauthorized");
+        }
+        if (error.status === 429 && error.code === "TOO_MANY_UPLOADS") {
+          throw new Failed("too-many-uploads");
+        }
+        if (error.status === 429) {
+          return { kind: "retry", afterMs: (error.retryAfterSeconds ?? 1) * 1000, exhausted: "rate-limited" };
+        }
+        if (error.status >= 500) {
+          return { kind: "retry" };
+        }
+        // A 4xx a retry does not fix, IDEMPOTENCY_KEY_MISMATCH (422) and VIDEO_NOT_UPLOADING (409) included.
         throw new Failed("init-failed");
       }
     });

@@ -52,13 +52,16 @@ function client() {
   return createClient<paths>({ baseUrl: `${window.location.origin}/api` });
 }
 
-// Creates a video in UPLOADING and returns its upload form. Not idempotent: every call opens one of the user's 3
-// upload slots. A network failure rejects with the fetch error.
+// Creates a video in UPLOADING and returns its upload form. `idempotencyKey` (a quoted UUID) names one video: a retry
+// with the same key and input answers with the same video and opens no other of the user's 3 upload slots (ADR-0043).
+// A network failure rejects with the fetch error.
 export async function initUpload(
   input: { title: string; sizeBytes: number; contentType: string },
+  idempotencyKey: string,
   signal: AbortSignal,
 ): Promise<UploadForm> {
   const { data, error, response } = await client().POST("/videos", {
+    params: { header: { "Idempotency-Key": idempotencyKey } },
     body: { title: input.title, size_bytes: input.sizeBytes, content_type: input.contentType },
     signal,
   });

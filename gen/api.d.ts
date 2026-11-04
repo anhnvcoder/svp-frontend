@@ -251,10 +251,21 @@ export interface paths {
         put?: never;
         /**
          * Create a video in UPLOADING
-         * @description Not idempotent: each call creates a video. The response carries a presigned POST: send a
-         *     `multipart/form-data` request to `upload_url` with every entry of `form_fields` first and the
-         *     file as the last field, before `expires_at`, then call `POST /videos/{video_id}/complete`.
-         *     `upload_url` and `form_fields` are a short-lived credential: do not log or share them.
+         * @description The response carries a presigned POST: send a `multipart/form-data` request to `upload_url`
+         *     with every entry of `form_fields` first and the file as the last field, before `expires_at`,
+         *     then call `POST /videos/{video_id}/complete`. `upload_url` and `form_fields` are a
+         *     short-lived credential: do not log or share them.
+         *
+         *     Without an `Idempotency-Key` each call creates a video. With one, a retry is safe: when the
+         *     caller already has a video created with this key and the same `title`, `size_bytes` and
+         *     `content_type` (compared as stored: the title trimmed, the media type in lower case without
+         *     parameters) that is still UPLOADING, the answer is a 201 with that video's `video_id` and a
+         *     newly signed form that expires with the first one, 15 minutes after the video was created,
+         *     and nothing is created. A retry does not count against the 3 open uploads. Concurrent
+         *     requests with one key create one video and all answer with it. The key reused with another
+         *     `title`, `size_bytes` or `content_type` is a 422 (`IDEMPOTENCY_KEY_MISMATCH`); the key of a
+         *     video that has left UPLOADING, or whose first form has expired or has less than a minute
+         *     left, is a 409 (`VIDEO_NOT_UPLOADING`): start a new upload with a new key.
          */
         post: operations["initUpload"];
         delete?: never;
@@ -828,6 +839,15 @@ export interface components {
         };
     };
     parameters: {
+        /**
+         * @description Optional idempotency key of one video creation (draft-ietf-httpapi-idempotency-key-header):
+         *     a Structured Field String holding a UUID in canonical lowercase form, quotes included.
+         *     Generate one per new video and send the same key on every retry of its creation. A value
+         *     of any other form, an empty one, or more than one `Idempotency-Key` field is a 400
+         *     (`INVALID_IDEMPOTENCY_KEY`). Keys belong to the caller: another user's key never matches.
+         *     A key stays bound to its video for as long as the video exists; it does not expire.
+         */
+        IdempotencyKey: string;
         /** @description Items per page; absent or 0 means 10, above 50 means 50, negative is a 400. */
         PageSize: number;
         /**
@@ -1370,7 +1390,17 @@ export interface operations {
     initUpload: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional idempotency key of one video creation (draft-ietf-httpapi-idempotency-key-header):
+                 *     a Structured Field String holding a UUID in canonical lowercase form, quotes included.
+                 *     Generate one per new video and send the same key on every retry of its creation. A value
+                 *     of any other form, an empty one, or more than one `Idempotency-Key` field is a 400
+                 *     (`INVALID_IDEMPOTENCY_KEY`). Keys belong to the caller: another user's key never matches.
+                 *     A key stays bound to its video for as long as the video exists; it does not expire.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -1419,9 +1449,47 @@ export interface operations {
                     };
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /**
+             * @description Invalid request: an `Idempotency-Key` that is not one quoted lowercase UUID
+             *     (`INVALID_IDEMPOTENCY_KEY`), a body that is not one JSON object with known, non-null
+             *     fields (`INVALID_JSON`), a path or query that is not valid UTF-8 (`INVALID_UTF8`), or an
+             *     argument the service rejects (its reason, for example `INVALID_TITLE`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
+            /**
+             * @description The first request of this `Idempotency-Key` cannot be answered again
+             *     (`VIDEO_NOT_UPLOADING`): its video has left UPLOADING, or its upload window has ended
+             *     (the first form has expired or has less than a minute left).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             413: components["responses"]["PayloadTooLarge"];
+            /**
+             * @description The `Idempotency-Key` was already used by the caller with another `title`, `size_bytes`
+             *     or `content_type` (`IDEMPOTENCY_KEY_MISMATCH`).
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /**
              * @description Over the rate limit (`RATE_LIMITED`, with `Retry-After`), or the caller already has 3
              *     videos in UPLOADING whose upload form has not expired (`TOO_MANY_UPLOADS`, no

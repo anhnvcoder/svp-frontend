@@ -83,6 +83,18 @@ describe.skipIf(!testRedisURL)("current user on the test Redis", () => {
     expect(await getCurrentUser()).toEqual({ userId });
   });
 
+  it("a session past its idle deadline sends requireSession to /login and getCurrentUser to null", async () => {
+    let clock = Date.now();
+    request.services = testServices(redis.client(), redis.prefix(), { now: () => clock });
+    const { sid } = await request.services.store.create(userId, fakeTokens(userId));
+    request.cookies.set("svp_sid", sid);
+    server.use(http.post(`${gatewayOrigin}/auth/logout`, () => new HttpResponse(null, { status: 204 })));
+    clock += 7 * 24 * 3_600_000;
+    expect(await getCurrentUser()).toBeNull();
+    expect(await redirectTarget(requireSession())).toBe("/login?next=%2Ffollowing%3Fx%3D1");
+    expect(await request.services.store.read(sid)).toBeNull();
+  });
+
   it("getCurrentUser is null when logged out", async () => {
     expect(await getCurrentUser()).toBeNull();
   });

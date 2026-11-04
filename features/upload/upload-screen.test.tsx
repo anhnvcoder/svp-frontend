@@ -437,7 +437,7 @@ describe("upload screen: refusals", () => {
     expect(screen.getByRole("button", { name: t.details.submitting })).toBeTruthy();
     expect(screen.queryByText(t.progress.waiting)).toBeNull();
     const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain(t.failure.rateLimited.title);
+    expect(alert.textContent).toContain(t.progress.retrying.title);
     expect(alert.textContent).toContain("Đang tự thử lại… lần 1/3");
     expect(changeButton().disabled).toBe(false);
     expect(titleBox().readOnly).toBe(true);
@@ -504,7 +504,7 @@ describe("upload screen: refusals", () => {
     );
     const { container } = renderScreen();
     await post(container);
-    expect(screen.getByRole("alert").textContent).toContain(t.failure.rateLimited.title);
+    expect(screen.getByRole("alert").textContent).toContain(t.progress.retrying.title);
     fireEvent.click(changeButton());
     await flush();
     expect(screen.getByText("Bước 1/3")).toBeTruthy();

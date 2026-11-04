@@ -221,11 +221,11 @@ export function UploadScreen({ uploadOrigin }: UploadScreenProps) {
       // online again.
       alert = <UploadAlert tone="offline" title={t("progress.offline.title")} body={t("progress.offline.body")} />;
     } else if (upload?.status === "waiting" && upload.waitingFor === "backoff") {
-      // Before the form only a rate limit is retried by itself: the gateway refused the request, so no video exists.
+      // A retry of the form request: a rate limit, a 5xx or a request lost on the way; its key keeps it to one video.
       alert = (
         <UploadAlert
           tone="warning"
-          title={t("failure.rateLimited.title")}
+          title={t("progress.retrying.title")}
           body={t("progress.retrying.body", { retry: upload.retries, max: maxRetries })}
         />
       );

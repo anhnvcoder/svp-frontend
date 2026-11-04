@@ -12,11 +12,15 @@ import { withTimeout, type Redis } from "./redis";
 
 export const defaultKeyPrefix = "svp:web:";
 
-// The cookie lives as long as a refresh token family can (30 days after login); the session's real lifetime is the TTL
-// of its Redis key, pushed to refresh_expires_at at every refresh.
-export const sessionCookieMaxAgeSeconds = 30 * 24 * 60 * 60;
+// A session ends after 7 days without use or 30 days after login, whichever comes first, and never later than its
+// refresh token. Its Redis key expires at the earliest of the three; a key read past either deadline (written before
+// these limits existed, or a clock ahead of Redis) counts as gone. The use is written at most once an hour, so the
+// idle timeout may fall up to an hour short of 7 days after the last request.
+export const idleTimeoutMs = 7 * 24 * 3_600_000;
+export const absoluteTimeoutMs = 30 * 24 * 3_600_000;
+export const lastUseWriteIntervalMs = 3_600_000;
 
-const sessionSchema = z.object({
+const storedSessionSchema = z.object({
   // Grows by one at every write, for compare-and-set.
   ver: z.number().int().positive(),
   user_id: z.string(),
@@ -25,9 +29,17 @@ const sessionSchema = z.object({
   refresh_token: z.string(),
   refresh_expires_at: z.string(),
   created_at: z.string(),
+  // Missing in a session written before the idle timeout existed: its last use counts as the login, so a session
+  // whose last use is unknown ends rather than lives on.
+  last_used_at: z.string().optional(),
 });
 
-export type Session = z.infer<typeof sessionSchema>;
+const sessionSchema = storedSessionSchema.transform((session) => ({
+  ...session,
+  last_used_at: session.last_used_at ?? session.created_at,
+}));
+
+export type Session = z.output<typeof sessionSchema>;
 
 export interface TokenSet {
   access_token: string;
@@ -68,7 +80,7 @@ export interface SessionCookieOptions {
   maxAge: number;
 }
 
-export function sessionCookieOptions(secure: boolean, maxAge = sessionCookieMaxAgeSeconds): SessionCookieOptions {
+export function sessionCookieOptions(secure: boolean, maxAge: number): SessionCookieOptions {
   return { httpOnly: true, secure, path: "/", sameSite: "lax", maxAge };
 }
 
@@ -135,26 +147,39 @@ export class SessionStore {
     return `${this.prefix}lock:${hashSid(sid)}`;
   }
 
-  // Stores a new session under a fresh sid; the key expires with the refresh token.
+  // Stores a new session under a fresh sid.
   async create(userId: string, tokens: TokenSet): Promise<{ sid: string; session: Session }> {
     const sid = newSid();
+    const now = new Date(this.now()).toISOString();
     const session: Session = {
       ver: 1,
       user_id: userId,
       ...sessionTokens(tokens),
-      created_at: new Date(this.now()).toISOString(),
+      created_at: now,
+      last_used_at: now,
     };
     await bounded(
       this.redis.set(this.sessionKey(sid), JSON.stringify(session), {
         condition: "NX",
-        expiration: { type: "PXAT", value: Date.parse(session.refresh_expires_at) },
+        expiration: { type: "PXAT", value: keyExpiresAt(session) },
       }),
     );
     return { sid, session };
   }
 
-  // The session of sid, or null for a malformed sid (no Redis call), an unknown one or a value that is not a session.
+  // The live session of sid, or null for a malformed sid (no Redis call), an unknown one, a value that is not a
+  // session, or a session past its idle or absolute deadline, which is deleted.
   async get(sid: string): Promise<Session | null> {
+    const session = await this.read(sid);
+    if (session && this.expired(session)) {
+      await this.compareAndDelete(sid, session);
+      return null;
+    }
+    return session;
+  }
+
+  // The stored session of sid, past its deadlines or not; null as for get otherwise.
+  async read(sid: string): Promise<Session | null> {
     if (!isSid(sid)) {
       return null;
     }
@@ -176,17 +201,50 @@ export class SessionStore {
     }
   }
 
-  // Replaces the tokens of the session at version `expected`; returns the new session, or null when the session is
-  // gone or was written by someone else since.
+  // True once the session is past its idle or absolute deadline.
+  expired(session: Session): boolean {
+    const now = this.now();
+    return now >= idleDeadline(session) || now >= absoluteDeadline(session);
+  }
+
+  // The cookie's Max-Age: the whole seconds left until the absolute deadline, rounded up.
+  cookieMaxAgeSeconds(session: Session): number {
+    return Math.max(0, Math.ceil((absoluteDeadline(session) - this.now()) / 1000));
+  }
+
+  // Replaces the tokens of the session at version `expected` and records the use; returns the new session, or null
+  // when the session is gone or was written by someone else since.
   async compareAndSet(sid: string, expected: Session, tokens: TokenSet): Promise<Session | null> {
-    const next: Session = { ...expected, ...sessionTokens(tokens), ver: expected.ver + 1 };
+    const next: Session = {
+      ...expected,
+      ...sessionTokens(tokens),
+      ver: expected.ver + 1,
+      last_used_at: new Date(this.now()).toISOString(),
+    };
+    return (await this.write(sid, expected, next)) ? next : null;
+  }
+
+  // Records a use of the session when the last one written is an hour old or more, and returns the session as it now
+  // stands. The version stays the same: a refresh that read the session before this write still wins its
+  // compare-and-set, so it never takes the replay path that revokes the family. A write that lost to another writer
+  // is dropped; the next request tries again.
+  async touch(sid: string, session: Session): Promise<Session> {
+    const now = this.now();
+    if (now - Date.parse(session.last_used_at) < lastUseWriteIntervalMs) {
+      return session;
+    }
+    const next: Session = { ...session, last_used_at: new Date(now).toISOString() };
+    return (await this.write(sid, session, next)) ? next : session;
+  }
+
+  private async write(sid: string, expected: Session, next: Session): Promise<boolean> {
     const written = await bounded(
       this.redis.eval(compareAndSetScript, {
         keys: [this.sessionKey(sid)],
-        arguments: [String(expected.ver), JSON.stringify(next), String(Date.parse(next.refresh_expires_at))],
+        arguments: [String(expected.ver), JSON.stringify(next), String(keyExpiresAt(next))],
       }),
     );
-    return written === 1 ? next : null;
+    return written === 1;
   }
 
   // Deletes the session only while it is still at version `expected`.
@@ -213,6 +271,19 @@ export class SessionStore {
   async lockHeld(sid: string): Promise<boolean> {
     return (await bounded(this.redis.exists(this.lockKey(sid)))) === 1;
   }
+}
+
+function idleDeadline(session: Session): number {
+  return Date.parse(session.last_used_at) + idleTimeoutMs;
+}
+
+function absoluteDeadline(session: Session): number {
+  return Date.parse(session.created_at) + absoluteTimeoutMs;
+}
+
+// The key lives until the earliest of the refresh token's expiry and the two deadlines.
+function keyExpiresAt(session: Session): number {
+  return Math.min(Date.parse(session.refresh_expires_at), idleDeadline(session), absoluteDeadline(session));
 }
 
 function sessionTokens(

@@ -1,5 +1,5 @@
 import { delay, http, HttpResponse } from "msw";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "@/lib/test/msw-server";
 import { SessionStore } from "./session";
 import { SessionAccess } from "./session-access";
@@ -305,5 +305,87 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
     await services.access.end(sid, session, null);
     expect(await services.store.get(sid)).toBeNull();
     expect(logouts).toEqual([session.refresh_token]);
+  });
+});
+
+describe.skipIf(!testRedisURL)("SessionAccess idle and absolute timeouts on the test Redis", () => {
+  const redis = useTestRedis();
+  const hour = 3_600_000;
+  const day = 24 * hour;
+  // A clock that starts at the real time and moves forward only, so keys stay alive in Redis meanwhile.
+  let start = 0;
+  let clock = 0;
+  const services = () => testServices(redis.client(), redis.prefix(), { now: () => clock });
+
+  beforeEach(() => {
+    start = Date.now();
+    clock = start;
+  });
+
+  it("records the use at most once an hour, without a refresh and without bumping the version", async () => {
+    const bff = services();
+    const { sid, session } = await bff.store.create(userId, fakeTokens(userId, 3 * hour));
+    const { calls } = refreshes();
+
+    clock = start + 30 * 60_000;
+    expect(await bff.access.access(sid, null)).toEqual({ kind: "ok", session });
+    expect(await bff.store.get(sid)).toEqual(session);
+
+    clock = start + hour;
+    const touched = { ...session, last_used_at: new Date(clock).toISOString() };
+    expect(await bff.access.access(sid, null)).toEqual({ kind: "ok", session: touched });
+    expect(await bff.store.get(sid)).toEqual(touched);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("keeps serving the request when the use cannot be written", async () => {
+    const bff = services();
+    const { sid, session } = await bff.store.create(userId, fakeTokens(userId, 3 * hour));
+    vi.spyOn(bff.store, "touch").mockRejectedValue(new Error("redis gone"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    clock = start + 2 * hour;
+    expect(await bff.access.access(sid, null)).toEqual({ kind: "ok", session });
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it.each([
+    ["7 days after its last use", 7 * day],
+    ["30 days after login", 30 * day],
+  ])("a session read %s is deleted and its family revoked", async (_, after) => {
+    const bff = services();
+    const { sid, session } = await bff.store.create(userId, fakeTokens(userId));
+    if (after > 7 * day) {
+      // Used every few days, so only the absolute deadline ends it.
+      let current = session;
+      for (let at = 5 * day; at < after; at += 5 * day) {
+        clock = start + at;
+        current = await bff.store.touch(sid, current);
+      }
+    }
+    const logouts = recordLogouts();
+    clock = start + after;
+    expect(await bff.access.access(sid, null)).toEqual({ kind: "none" });
+    expect(logouts).toEqual([session.refresh_token]);
+    expect(await bff.store.read(sid)).toBeNull();
+  });
+
+  it("a use written while a refresh is in flight does not make the refresh lose or revoke the family", async () => {
+    const bff = services();
+    const { sid, session } = await bff.store.create(userId, fakeTokens(userId, 2 * hour + dueSoonMs));
+    const { calls } = refreshes(100);
+    const logouts = recordLogouts();
+    clock = start + 2 * hour;
+
+    const refreshing = bff.access.access(sid, null);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const touched = await bff.store.touch(sid, session);
+    expect(touched).not.toBe(session);
+    expect(touched.ver).toBe(1);
+
+    const result = await refreshing;
+    expect(calls).toEqual([session.refresh_token]);
+    expect(result).toMatchObject({ kind: "ok", session: { ver: 2, last_used_at: new Date(clock).toISOString() } });
+    expect(await bff.store.get(sid)).toMatchObject({ ver: 2 });
+    expect(logouts).toEqual([]);
   });
 });

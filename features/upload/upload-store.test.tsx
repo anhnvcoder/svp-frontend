@@ -27,18 +27,28 @@ function video(videoId: string, status: Video["status"] = "PROCESSING"): Video {
 
 type InitAnswer = { lifetimeMs?: number; url?: string } | (() => Response);
 
-// POST /api/videos: each call gets the next answer (the last one from then on) and creates the next video id. A form
-// answer carries the server's Date and an expires_at `lifetimeMs` after it (15 minutes by default).
+const quotedUuid = /^"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"$/;
+
+// The Idempotency-Key of each POST /api/videos of the test, in order.
+let initKeys: (string | null)[] = [];
+
+// POST /api/videos: each call gets the next answer (the last one from then on). A form answer carries the server's
+// Date and an expires_at `lifetimeMs` after it (15 minutes by default), and the video of its Idempotency-Key, as the
+// gateway does: a key not seen before is the next video id.
 function initServer(...answers: InitAnswer[]) {
   const bodies: unknown[] = [];
+  const videoOf = new Map<string | null, string>();
   server.use(
     http.post("*/api/videos", async ({ request }) => {
       bodies.push(await request.json());
+      const key = request.headers.get("idempotency-key");
+      initKeys.push(key);
       const answer = (answers.length > 1 ? answers.shift() : answers[0]) ?? {};
       if (typeof answer === "function") {
         return answer();
       }
-      const videoId = ids[bodies.length - 1] ?? "";
+      const videoId = videoOf.get(key) ?? ids[videoOf.size] ?? "";
+      videoOf.set(key, videoId);
       return HttpResponse.json(
         {
           video_id: videoId,
@@ -73,6 +83,7 @@ let random = 1;
 
 beforeEach(() => {
   FakeXHR.reset();
+  initKeys = [];
   vi.stubGlobal("XMLHttpRequest", FakeXHR);
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date", "performance"] });
   vi.setSystemTime(serverNow);
@@ -130,6 +141,8 @@ describe("upload store", () => {
     expect(only().status).toBe("preparing");
     await flush();
     expect(bodies).toEqual([{ title: "  kept as given  ", size_bytes: 1000, content_type: "video/mp4" }]);
+    expect(initKeys).toHaveLength(1);
+    expect(initKeys[0]).toMatch(quotedUuid);
     const xhr = FakeXHR.last();
     expect(xhr.url).toBe(uploadUrl);
     expect(xhr.withCredentials).toBe(false);
@@ -330,6 +343,9 @@ describe("upload store", () => {
     FakeXHR.last().respond(403);
     await flush();
     expect(bodies).toHaveLength(2);
+    // A new video takes a new key: the first one would answer with the first video.
+    expect(initKeys[1]).toMatch(quotedUuid);
+    expect(initKeys[1]).not.toBe(initKeys[0]);
     expect(FakeXHR.instances).toHaveLength(2);
     expect(FakeXHR.last().body?.get("key")).toBe(`uploads/${ids[1]}`);
     expect(only()).toMatchObject({ status: "sending", videoId: ids[1], renewed: true, retries: 0 });
@@ -355,6 +371,7 @@ describe("upload store", () => {
       FakeXHR.last().fail();
       await advance(1000);
       expect(bodies).toHaveLength(2);
+      expect(initKeys[1]).not.toBe(initKeys[0]);
       expect(FakeXHR.last().body?.get("key")).toBe(`uploads/${ids[1]}`);
       expect(only()).toMatchObject({ videoId: ids[1], renewed: true });
     });
@@ -391,12 +408,77 @@ describe("upload store", () => {
     expect(FakeXHR.instances).toHaveLength(1);
   });
 
-  it("does not retry a form request that failed on the way: it may have created a video", async () => {
-    const bodies = initServer(() => problem(503, "UNAVAILABLE"));
+  it("retries a form request lost on the way or answered 5xx with the same key, for one video", async () => {
+    const bodies = initServer(
+      () => HttpResponse.error(),
+      () => problem(503, "UNAVAILABLE"),
+      {},
+    );
+    completeServer(accepted(ids[0] ?? ""));
+    start();
+    await flush();
+    expect(only()).toMatchObject({ status: "waiting", waitingFor: "backoff", retries: 1 });
+    await advance(1000);
+    expect(bodies).toHaveLength(2);
+    await advance(2000);
+    expect(bodies).toHaveLength(3);
+    expect(initKeys[0]).toMatch(quotedUuid);
+    expect(new Set(initKeys)).toEqual(new Set([initKeys[0]]));
+    expect(FakeXHR.instances).toHaveLength(1);
+    expect(FakeXHR.last().body?.get("key")).toBe(`uploads/${ids[0]}`);
+    expect(only()).toMatchObject({ status: "sending", videoId: ids[0], renewed: false });
+  });
+
+  it("a form request lost on the way 4 times ends init-failed, not rate-limited", async () => {
+    const bodies = initServer(() => HttpResponse.error());
+    start();
+    await flush();
+    for (let wait = 0; wait < 3; wait++) {
+      await advance(8000);
+    }
+    expect(bodies).toHaveLength(4);
+    expect(new Set(initKeys).size).toBe(1);
+    expect(only()).toMatchObject({ status: "failed", failure: "init-failed" });
+    expect(FakeXHR.instances).toHaveLength(0);
+  });
+
+  it("a form request whose last attempt is rate limited ends rate-limited", async () => {
+    const unavailable = () => problem(503, "UNAVAILABLE");
+    const bodies = initServer(unavailable, unavailable, unavailable, () =>
+      problem(429, "RATE_LIMITED", { "Retry-After": "1" }),
+    );
+    start();
+    await advance(60_000);
+    expect(bodies).toHaveLength(4);
+    expect(only()).toMatchObject({ status: "failed", failure: "rate-limited" });
+  });
+
+  it.each([
+    [409, "VIDEO_NOT_UPLOADING"],
+    [422, "IDEMPOTENCY_KEY_MISMATCH"],
+    [400, "INVALID_TITLE"],
+  ])("a form request answered %i %s is not retried", async (status, code) => {
+    const bodies = initServer(() => problem(status, code));
     start();
     await advance(60_000);
     expect(only()).toMatchObject({ status: "failed", failure: "init-failed" });
     expect(bodies).toHaveLength(1);
+    expect(FakeXHR.instances).toHaveLength(0);
+  });
+
+  it("posting again after init-failed is a new upload with a new key", async () => {
+    initServer(() => problem(409, "VIDEO_NOT_UPLOADING"), {});
+    const first = start();
+    await flush();
+    store.retry(first);
+    await flush();
+    expect(initKeys).toHaveLength(1);
+    store.dismiss(first);
+    start();
+    await flush();
+    expect(initKeys).toHaveLength(2);
+    expect(initKeys[1]).not.toBe(initKeys[0]);
+    expect(only()).toMatchObject({ status: "sending", videoId: ids[0] });
   });
 
   it("a refused session (401) at any step ends unauthorized", async () => {
@@ -507,6 +589,8 @@ describe("upload store", () => {
     const byKey = Object.fromEntries(store.list().map((upload) => [upload.key, upload]));
     expect(byKey[first]).toMatchObject({ title: "First", status: "sending", progress: 0.25, videoId: ids[0] });
     expect(byKey[second]).toMatchObject({ title: "Second", status: "processing", videoId: ids[1] });
+    expect(initKeys).toHaveLength(2);
+    expect(initKeys[1]).not.toBe(initKeys[0]);
   });
 
   it("tells subscribers about every change, with a new list each time", async () => {

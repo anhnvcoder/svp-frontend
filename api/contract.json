@@ -1,5 +1,5 @@
 {
   "repository": "ghcr.io/anhnvcoder/svp-backend/api/gateway",
-  "version": "1.0.0",
-  "digest": "sha256:907e3bf198b9898dcd05f00f640f9506667a911e7f176c6a33d61b54f03507ca"
+  "version": "1.1.0",
+  "digest": "sha256:945c0091f3113d8558114856e9f41cd5b9399511a9a86b7236547c4efef3ab32"
 }
