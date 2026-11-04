@@ -4,7 +4,7 @@ import { testEnv } from "../testing/bff";
 import type { BrowserReport } from "./browser-report";
 import { WindowBudget } from "./limiter";
 import { handleMonitoringReport } from "./monitoring";
-import { captureBrowserReport, startErrorReporting } from "./server";
+import { captureBrowserReport, captureCspReport, startErrorReporting } from "./server";
 
 // The SDK as the server runs it, with an in-memory transport in place of GlitchTip.
 
@@ -42,6 +42,7 @@ beforeEach(() => {
 
 interface SentEvent {
   platform?: string;
+  level?: string;
   message?: string;
   environment?: string;
   release?: string;
@@ -130,10 +131,57 @@ describe("server error reporting", () => {
     });
   });
 
+  it("sends a CSP violation as a warning, one issue per directive and blocked origin", async () => {
+    captureCspReport(
+      {
+        path: "/u/minhanh",
+        blocked: "http://evil.test/minh@example.com.png",
+        directive: "img-src",
+        disposition: "enforce",
+        sourceFile: "https://svp.localhost:8443/_next/static/chunks/a.js",
+        line: 12,
+        column: 7,
+        statusCode: 200,
+      },
+      env,
+    );
+    const [event] = await sentEvents();
+    expect(event).toMatchObject({
+      platform: "javascript",
+      level: "warning",
+      message: "CSP img-src blocked http://evil.test",
+      request: { url: "https://svp.localhost:8443/u/minhanh" },
+      tags: {
+        service: "web",
+        runtime: "browser",
+        route: "/u/[handle]",
+        csp_directive: "img-src",
+        csp_disposition: "enforce",
+      },
+      contexts: {
+        csp: {
+          blocked_url: "http://evil.test/[redacted]",
+          effective_directive: "img-src",
+          disposition: "enforce",
+          source_file: "https://svp.localhost:8443/_next/static/chunks/a.js",
+          line_number: 12,
+          column_number: 7,
+          status_code: 200,
+        },
+      },
+    });
+    expect(event).not.toHaveProperty("exception");
+  });
+
   // Last: the hung request stays pending in the transport until the SDK closes.
   it("answers a browser's report at once while GlitchTip hangs", async () => {
     upstream = "hang";
-    const deps = { budget: new WindowBudget(20, 60_000), capture: captureBrowserReport };
+    const deps = {
+      budget: new WindowBudget(20, 60_000),
+      cspBudget: new WindowBudget(20, 60_000),
+      capture: captureBrowserReport,
+      captureCsp: captureCspReport,
+    };
     const request = new Request("http://localhost:3001/monitoring", {
       method: "POST",
       body: JSON.stringify({ ...report, message: "hangs" }),

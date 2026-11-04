@@ -264,10 +264,10 @@ measure-web: ## Run e2e and print time to first frame after a swipe (p50/p95 per
 measure-upload: ## Upload a ~100 MB video from Chromium through /upload; print time, throughput, page CPU and time to READY; JSON in test-results/
 	@$(NODE) $(BACKEND) bash e2e/measure-upload.sh
 
-# Needs the backend's stack and Playwright's Chromium (pnpm exec playwright install chromium); one run per page, so the
-# numbers carry noise. LOCAL LAB ONLY like e2e: lighthouse/run.sh registers a fresh user and deletes the gateway's
+# Needs the backend's stack and Playwright's Chromium (pnpm exec playwright install chromium); three runs per page, each
+# threshold read on the median. LOCAL LAB ONLY like e2e: lighthouse/run.sh registers a fresh user and deletes the gateway's
 # register rate limit keys in Redis db 10 first.
-lighthouse: ## Lighthouse (mobile, one run per page) of the feed logged in and /v/{id} logged out: LCP/CLS/TBT thresholds, reports in test-results/lighthouse/
+lighthouse: ## Lighthouse (mobile, three runs per page) of the feed logged in and /v/{id} logged out: LCP/CLS/TBT/accessibility thresholds on the median, reports in test-results/lighthouse/
 	@$(NODE) $(BACKEND) bash lighthouse/run.sh
 
 # Needs the backend's stack with GlitchTip (make up OBS=lgtm there, which writes SENTRY_SOURCEMAPS_TOKEN to its .env);

@@ -31,7 +31,7 @@ echo "web memory at rest: $rest MiB"
 
 rm -f test-results/first-frame-*.json
 status=0
-pnpm e2e || status=$?
+SVP_E2E_MEASURE_WEB=1 pnpm e2e || status=$?
 
 after=$(memory_mib)
 echo "web memory after e2e: $after MiB"

@@ -17,9 +17,27 @@ export interface CspOptions {
   // `next dev` only: React rebuilds server error stacks in the browser with eval. A production build never has it, and
   // nothing ever gets 'unsafe-inline'.
   dev: boolean;
+  // Absolute URL browsers send violation reports to (see cspReportEndpoint); null sends none.
+  reportEndpoint: string | null;
 }
 
-export function contentSecurityPolicy({ nonce, mediaOrigin, uploadOrigin, secure, dev }: CspOptions): string {
+/**
+ * The URL of POST /monitoring when error reporting is on (a DSN is set), else null: the route answers 404 without a
+ * DSN, so the policy then names no endpoint at all. Absolute, from APP_ORIGIN: the Reporting API sends only to a
+ * potentially trustworthy origin (https, or localhost).
+ */
+export function cspReportEndpoint(appOrigin: string, sentryDsn: string | null): string | null {
+  return sentryDsn === null ? null : `${appOrigin}/monitoring`;
+}
+
+export function contentSecurityPolicy({
+  nonce,
+  mediaOrigin,
+  uploadOrigin,
+  secure,
+  dev,
+  reportEndpoint,
+}: CspOptions): string {
   // The upload origin is listed once when it is the media origin (one object store serves both in compose).
   const connect = uploadOrigin === mediaOrigin ? mediaOrigin : `${mediaOrigin} ${uploadOrigin}`;
   const directives = [
@@ -39,12 +57,23 @@ export function contentSecurityPolicy({ nonce, mediaOrigin, uploadOrigin, secure
     "form-action 'self'",
     "frame-ancestors 'none'",
     ...(secure ? ["upgrade-insecure-requests"] : []),
+    // A browser with the Reporting API uses report-to (the endpoint of Reporting-Endpoints) and ignores report-uri;
+    // one without it, as WebKit, posts to report-uri.
+    ...(reportEndpoint === null ? [] : ["report-to csp", `report-uri ${reportEndpoint}`]),
   ];
   return directives.join("; ");
 }
 
-export function setSecurityHeaders(headers: Headers, csp: string, secure: boolean): void {
+export function setSecurityHeaders(
+  headers: Headers,
+  csp: string,
+  secure: boolean,
+  reportEndpoint: string | null,
+): void {
   headers.set("Content-Security-Policy", csp);
+  if (reportEndpoint !== null) {
+    headers.set("Reporting-Endpoints", `csp="${reportEndpoint}"`);
+  }
   if (secure) {
     headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
   }

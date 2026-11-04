@@ -41,6 +41,8 @@ Quy ước chung (ngôn ngữ, tài liệu timeless, ADR, comment, Git, repo pub
   `make generate-check` (bản sinh khớp hợp đồng đã ghim), `make lockfile-scan` (cổng lỗ hổng của lockfile).
 - Test e2e, đo, Lighthouse, source map (`make e2e`, `make measure-web`, `make measure-upload`, `make lighthouse`, `make sourcemaps`,
   `make k8s-e2e`, `make k8s-sourcemaps`) cần stack của backend đang chạy; máy 16 GB: không chạy compose và k3d cùng lúc.
+- Lighthouse chạy ba lượt mỗi trang, ngưỡng (LCP, CLS, TBT, điểm accessibility) lấy trung vị: vượt ngưỡng làm job `stack` của CI đỏ, job vẫn
+  ngoài `ci-ok` nên không chặn merge. Trên CI Playwright thử lại test đỏ tối đa hai lần (`retries` ở `playwright.config.ts`); lượt đo luôn 0.
 - CI chạy lại trên máy: job `check` là ba lệnh đầu cộng `make lockfile-scan`; job `config` là `make backend-checkout`, rồi
   `SVP_CODE_ROOT="$PWD" .backend/deploy/ci/scan-gate.sh --check-ignorefile` và
   `actionlint` (`make tools` cài); job `zizmor` là `make zizmor` (trên máy chỉ offline, không truyền token vào container).

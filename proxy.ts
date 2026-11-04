@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { contentSecurityPolicy, newNonce, setSecurityHeaders } from "@/server/csp";
+import { contentSecurityPolicy, cspReportEndpoint, newNonce, setSecurityHeaders } from "@/server/csp";
 import { passesCsrfCheck } from "@/server/csrf";
 import { serverEnv } from "@/server/env";
 import { problem } from "@/server/problem";
@@ -12,17 +12,19 @@ import { pathHeader } from "@/server/request-headers";
 export function proxy(request: NextRequest): NextResponse | Response {
   const env = serverEnv();
   const nonce = newNonce();
+  const reportEndpoint = cspReportEndpoint(env.appOrigin, env.sentryDsn);
   const csp = contentSecurityPolicy({
     nonce,
     mediaOrigin: env.mediaOrigin,
     uploadOrigin: env.uploadOrigin,
     secure: env.secure,
     dev: process.env.NODE_ENV === "development",
+    reportEndpoint,
   });
 
   if (!passesCsrfCheck(request.method, request.headers, env.appOrigin)) {
     const refused = problem(403, "CSRF_REJECTED");
-    setSecurityHeaders(refused.headers, csp, env.secure);
+    setSecurityHeaders(refused.headers, csp, env.secure, reportEndpoint);
     return refused;
   }
 
@@ -33,7 +35,7 @@ export function proxy(request: NextRequest): NextResponse | Response {
   headers.set(pathHeader, request.nextUrl.pathname + request.nextUrl.search);
 
   const response = NextResponse.next({ request: { headers } });
-  setSecurityHeaders(response.headers, csp, env.secure);
+  setSecurityHeaders(response.headers, csp, env.secure, reportEndpoint);
   // Pages carry the user's session; no shared cache may keep them.
   response.headers.set("Cache-Control", "private, no-store");
   return response;

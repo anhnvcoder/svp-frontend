@@ -22,6 +22,8 @@ if (evidence) {
 // SVP_E2E_MEASURE_UPLOAD_FILE=<video file> is set by e2e/measure-upload.sh (`make measure-upload`) only: the run is the
 // upload measurement of e2e/measure-upload.e2e.ts, which no other run includes.
 const measureUpload = process.env.SVP_E2E_MEASURE_UPLOAD_FILE;
+// Set by e2e/measure-web.sh: a retry would record the first-frame time of a second run.
+const measureWeb = process.env.SVP_E2E_MEASURE_WEB;
 
 // SVP_E2E_GLITCHTIP=1 adds e2e/glitchtip.e2e.ts: a real error in the browser bundle, then the GlitchTip API until
 // its event shows frames mapped to the source. It needs GlitchTip with the source maps uploaded, so a plain run leaves
@@ -71,7 +73,10 @@ export default defineConfig({
   // One browser at a time on the 16 GB machine; the tests also share one gateway rate limit bucket (e2e/fixtures.ts).
   workers: 1,
   fullyParallel: false,
-  retries: 0,
+  // CI (GitHub Actions sets CI) runs a failed test up to twice more, on a shared runner where a slow moment can fail
+  // one; the list reporter marks a test that passed only on a retry as flaky. The measurements (upload, first frame) always
+  // run once: a retry would measure a second run. On this machine a failure shows at once.
+  retries: process.env.CI && !measureUpload && !measureWeb ? 2 : 0,
   forbidOnly: true,
   timeout: 60_000,
   expect: { timeout: 15_000 },

@@ -27,8 +27,8 @@ export class WindowBudget {
 }
 
 // One event per fingerprint every 30 s, and the server's own errors within 60 a minute. Browser reports are not
-// counted here: /monitoring already let at most 20 a minute through, on a budget of their own, so junk reports cannot
-// push the server's errors out of theirs.
+// counted here: /monitoring already let at most 20 error reports and 20 CSP violations a minute through, on budgets of
+// their own, so junk reports cannot push the server's errors out of theirs.
 export class EventLimiter {
   private readonly last = new Map<string, number>();
   private readonly server: WindowBudget;
