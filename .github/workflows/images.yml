@@ -117,18 +117,18 @@ jobs:
       - &day
         id: day
         run: echo "day=$(date -u +%F)" >>"$GITHUB_OUTPUT"
+      # The trivy DB, one cache entry per day (trivy's advice against download limits); trivy still downloads a newer
+      # DB when the cached one is stale. A pull request's cache stays in its own ref and never replaces main's.
       - &trivy-cache
-        # The trivy DB, one cache entry per day (trivy's advice against download limits); trivy still downloads a newer
-        # DB when the cached one is stale. A pull request's cache stays in its own ref and never replaces main's.
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/trivy-cache/db
           key: trivy-db-${{ steps.day.outputs.day }}
           restore-keys: trivy-db-
+      # The grype DB, the same way: one entry per day (about 480 MB as a cache entry, of the repository's 10 GB
+      # quota). grype checks for a newer DB on every scan that has not checked in the last two hours, and refuses
+      # one built more than five days ago.
       - &grype-cache
-        # The grype DB, the same way: one entry per day (about 480 MB as a cache entry, of the repository's 10 GB
-        # quota). grype checks for a newer DB on every scan that has not checked in the last two hours, and refuses
-        # one built more than five days ago.
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/grype-cache
