@@ -34,10 +34,7 @@ function gateway(respond: () => Response = () => new HttpResponse(null, { status
   return seen;
 }
 
-function apiRequest(
-  path: string,
-  init: { method?: string; sid?: string; headers?: Record<string, string>; body?: string } = {},
-) {
+function apiRequest(path: string, init: { method?: string; sid?: string; headers?: HeadersInit; body?: string } = {}) {
   const headers = new Headers(init.headers);
   if (init.sid) {
     headers.set("cookie", `svp_sid=${init.sid}; svp_locale=vi`);
@@ -125,6 +122,21 @@ describe("proxyApiRequest without a session store", () => {
     const response = await proxyApiRequest(apiRequest(path), services);
     expect(response.status).toBe(400);
     expect(await problemCode(response)).toBe("INVALID_QUERY");
+  });
+
+  it("answers 400 INVALID_IDEMPOTENCY_KEY for more than one Idempotency-Key on POST /videos", async () => {
+    const response = await proxyApiRequest(
+      apiRequest("/videos", {
+        method: "POST",
+        headers: [
+          ["idempotency-key", `"${videoId}"`],
+          ["idempotency-key", `"${userId}"`],
+        ],
+      }),
+      services,
+    );
+    expect(response.status).toBe(400);
+    expect(await problemCode(response)).toBe("INVALID_IDEMPOTENCY_KEY");
   });
 
   it("answers 401 without a session cookie", async () => {
@@ -261,6 +273,45 @@ describe.skipIf(!testRedisURL)("proxyApiRequest on the test Redis", () => {
     expect(await problemCode(response)).toBe("TOO_MANY_UPLOADS");
   });
 
+  it("passes one Idempotency-Key of POST /videos on as it is", async () => {
+    const { services, sid } = await withSession();
+    const seen = gateway(() => gatewayProblem(400, "INVALID_IDEMPOTENCY_KEY"));
+    const key = `"${videoId}"`;
+    const response = await proxyApiRequest(
+      apiRequest("/videos", {
+        method: "POST",
+        sid,
+        headers: { "content-type": "application/json", "idempotency-key": key },
+        body: JSON.stringify({ title: "clip", size_bytes: 1024, content_type: "video/mp4" }),
+      }),
+      services,
+    );
+    expect(seen[0]?.headers.get("idempotency-key")).toBe(key);
+    // The gateway checks the form: its answer comes back as it is.
+    expect(response.status).toBe(400);
+    expect(await problemCode(response)).toBe("INVALID_IDEMPOTENCY_KEY");
+  });
+
+  it.each([
+    ["POST", `/videos/${videoId}/complete`],
+    ["POST", `/videos/${videoId}/views`],
+    ["PUT", `/videos/${videoId}/like`],
+    ["GET", "/me"],
+  ])("does not pass an Idempotency-Key of %s %s on", async (method, path) => {
+    const { services, sid } = await withSession();
+    const seen = gateway();
+    await proxyApiRequest(apiRequest(path, { method, sid, headers: { "idempotency-key": `"${videoId}"` } }), services);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.headers.get("idempotency-key")).toBeNull();
+  });
+
+  it("sends no Idempotency-Key on POST /videos when the browser's request had none", async () => {
+    const { services, sid } = await withSession();
+    const seen = gateway(() => gatewayProblem(429, "TOO_MANY_UPLOADS"));
+    await proxyApiRequest(apiRequest("/videos", { method: "POST", sid }), services);
+    expect(seen[0]?.headers.get("idempotency-key")).toBeNull();
+  });
+
   it("passes a JSON body and its problem answer through", async () => {
     const { services, sid } = await withSession();
     const seen = gateway(() => gatewayProblem(429, "RATE_LIMITED", { "Retry-After": "12" }));
@@ -284,6 +335,17 @@ describe.skipIf(!testRedisURL)("proxyApiRequest on the test Redis", () => {
     const services = testServices(redis.client(), redis.prefix());
     const response = await proxyApiRequest(apiRequest("/feed/explore", { sid: "b".repeat(43) }), services);
     expect(response.status).toBe(401);
+  });
+
+  it("answers 401 UNAUTHENTICATED for a session past its absolute deadline", async () => {
+    let clock = Date.now();
+    const services = testServices(redis.client(), redis.prefix(), { now: () => clock });
+    const { sid } = await services.store.create(userId, fakeTokens(userId));
+    server.use(http.post(`${gatewayOrigin}/auth/logout`, () => new HttpResponse(null, { status: 204 })));
+    clock += 30 * 24 * 3_600_000;
+    const response = await proxyApiRequest(apiRequest("/feed/explore", { sid }), services);
+    expect(response.status).toBe(401);
+    expect(await problemCode(response)).toBe("UNAUTHENTICATED");
   });
 
   it("ends the session and answers 401 when the gateway refuses a freshly refreshed token", async () => {

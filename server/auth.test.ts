@@ -263,6 +263,15 @@ describe.skipIf(!testRedisURL)("signIn and signOut on the test Redis", () => {
     expect(await services.store.get(sid)).toMatchObject({ user_id: userId, refresh_token: tokens.refresh_token });
   });
 
+  it("gives the cookie a Max-Age of the 30 days until the session's absolute deadline", async () => {
+    const services = testServices(redis.client(), redis.prefix());
+    server.use(http.post(`${gatewayOrigin}/auth/login`, () => HttpResponse.json(accessTokenBody(fakeTokens(userId)))));
+    expect(await signIn(services, "a@example.com", "12345678", null, undefined)).toMatchObject({
+      ok: true,
+      maxAge: 30 * 24 * 3600,
+    });
+  });
+
   it("a planted sid without a session is simply ignored", async () => {
     const services = testServices(redis.client(), redis.prefix());
     const logouts = recordLogouts();
@@ -297,5 +306,16 @@ describe.skipIf(!testRedisURL)("signIn and signOut on the test Redis", () => {
     expect(await services.store.get(sid)).toBeNull();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it("signOut revokes the family of a session past its idle deadline that Redis still holds", async () => {
+    let clock = Date.now();
+    const services = testServices(redis.client(), redis.prefix(), { now: () => clock });
+    const { sid, session } = await services.store.create(userId, fakeTokens(userId));
+    const logouts = recordLogouts();
+    clock += 7 * 24 * 3_600_000;
+    await signOut(services, sid, null);
+    expect(logouts).toEqual([session.refresh_token]);
+    expect(await services.store.read(sid)).toBeNull();
   });
 });

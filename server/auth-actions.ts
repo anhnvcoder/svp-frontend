@@ -60,7 +60,7 @@ async function startSession(email: string, password: string, next: FormDataEntry
   if (!result.ok) {
     return result.state;
   }
-  cookieStore.set(sessionCookieName(secure), result.sid, sessionCookieOptions(secure));
+  cookieStore.set(sessionCookieName(secure), result.sid, sessionCookieOptions(secure, result.maxAge));
   // Outside any try/catch: redirect() throws to hand control back to Next.
   redirect(safeNext(next, appOrigin));
 }

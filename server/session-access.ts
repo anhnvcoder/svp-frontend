@@ -63,12 +63,17 @@ export class SessionAccess {
   }
 
   async access(sid: string, forwardedFor: string | null): Promise<AccessResult> {
-    const session = await this.store.get(sid);
+    const session = await this.live(sid, forwardedFor);
     if (!session) {
       return { kind: "none" };
     }
     if (!this.needsRefresh(session)) {
-      return { kind: "ok", session };
+      // A refresh records the use itself; otherwise record it here, at most once an hour.
+      const touched = await this.store.touch(sid, session).catch(() => {
+        console.warn("recording a session use failed; the next request tries again");
+        return session;
+      });
+      return { kind: "ok", session: touched };
     }
     const key = hashSid(sid);
     let pending = this.inflight.get(key);
@@ -87,6 +92,17 @@ export class SessionAccess {
     }
   }
 
+  // The session of sid, or null when there is none. One read past its idle or absolute deadline (Redis normally drops
+  // the key by then) is ended like a session the gateway refused, its refresh token family revoked.
+  private async live(sid: string, forwardedFor: string | null): Promise<Session | null> {
+    const session = await this.store.read(sid);
+    if (session && this.store.expired(session)) {
+      await this.end(sid, session, forwardedFor);
+      return null;
+    }
+    return session;
+  }
+
   private needsRefresh(session: Session): boolean {
     return Date.parse(session.access_expires_at) - refreshEarlyMs < this.now();
   }
@@ -101,11 +117,11 @@ export class SessionAccess {
     const asked = performance.now();
     const holder = await this.store.acquireLock(sid, this.leaseMs);
     if (holder === null) {
-      return this.waitForHolder(sid, seen);
+      return this.waitForHolder(sid, seen, forwardedFor);
     }
     try {
       // Another replica may have refreshed between our read and the lease.
-      const current = await this.store.get(sid);
+      const current = await this.live(sid, forwardedFor);
       if (!current) {
         return { kind: "none" };
       }
@@ -150,11 +166,11 @@ export class SessionAccess {
 
   // Another replica (or a request of this one that lost the in-process race) holds the lease: wait for the session it
   // writes, without calling the gateway.
-  private async waitForHolder(sid: string, seen: Session): Promise<AccessResult> {
+  private async waitForHolder(sid: string, seen: Session, forwardedFor: string | null): Promise<AccessResult> {
     const deadline = this.now() + this.waitMs;
     for (;;) {
       await sleep(this.pollMs);
-      let current = await this.store.get(sid);
+      let current = await this.live(sid, forwardedFor);
       if (!current) {
         return { kind: "none" };
       }
@@ -163,7 +179,7 @@ export class SessionAccess {
       }
       if (!(await this.store.lockHeld(sid))) {
         // The holder may have written just before it let go; read once more before concluding it gave up.
-        current = await this.store.get(sid);
+        current = await this.live(sid, forwardedFor);
         if (!current) {
           return { kind: "none" };
         }

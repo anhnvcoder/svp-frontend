@@ -109,7 +109,8 @@ export function safeNext(next: FormDataEntryValue | string | null | undefined, a
   return url.pathname + url.search + url.hash;
 }
 
-export type SignInResult = { ok: true; sid: string } | { ok: false; state: AuthState };
+// maxAge is the session cookie's Max-Age in seconds.
+export type SignInResult = { ok: true; sid: string; maxAge: number } | { ok: false; state: AuthState };
 
 // Logs in through the gateway and starts a session under a fresh sid; the session of oldSid, if any, ends first and
 // its refresh token family is revoked, so a sid planted before login is worth nothing after it (session fixation).
@@ -129,8 +130,8 @@ export async function signIn(
     if (oldSid) {
       await signOut(services, oldSid, forwardedFor);
     }
-    const { sid } = await store.create(result.userId, result.tokens);
-    return { ok: true, sid };
+    const { sid, session } = await store.create(result.userId, result.tokens);
+    return { ok: true, sid, maxAge: store.cookieMaxAgeSeconds(session) };
   } catch {
     // No session could be stored: the new family is of no use to anyone.
     await gateway.logout(result.tokens.refresh_token, forwardedFor).catch(() => {});
@@ -139,9 +140,9 @@ export async function signIn(
 }
 
 // Revokes the session's refresh token family at the gateway (a failure is logged and the logout goes on) and deletes
-// the session.
+// the session, also one past its deadlines that Redis has not dropped yet.
 export async function signOut(services: BffServices, sid: string, forwardedFor: string | null): Promise<void> {
-  const session = await services.store.get(sid);
+  const session = await services.store.read(sid);
   if (!session) {
     return;
   }

@@ -20,13 +20,15 @@ interface Route {
   pattern: RegExp;
   methods: readonly string[];
   query: readonly string[];
+  // Passes the browser's Idempotency-Key on: it makes a retry of one video creation safe (ADR-0043).
+  idempotencyKey?: true;
 }
 
 // The routes of services/gateway/openapi.yaml the web client uses. PATCH /me is not one: the display name changes
 // through a Server Action. Nor is GET /public/videos/{id}: only the server of the share page calls it.
 const routes: readonly Route[] = [
   { pattern: /^\/feed\/(?:explore|following)$/, methods: ["GET"], query: ["cursor", "page_size"] },
-  { pattern: /^\/videos$/, methods: ["POST"], query: [] },
+  { pattern: /^\/videos$/, methods: ["POST"], query: [], idempotencyKey: true },
   { pattern: new RegExp(`^/videos/${id}$`), methods: ["GET"], query: [] },
   { pattern: new RegExp(`^/videos/${id}/complete$`), methods: ["POST"], query: [] },
   { pattern: new RegExp(`^/videos/${id}/like$`), methods: ["PUT", "DELETE"], query: [] },
@@ -101,6 +103,13 @@ export async function proxyApiRequest(request: NextRequest, services: BffService
     query.set(name, value);
   }
 
+  const idempotencyKey = route.idempotencyKey ? request.headers.get("idempotency-key") : null;
+  // Fetch joins repeated fields with ", ", and the one form the gateway accepts (a quoted UUID) holds no comma: a comma
+  // means more than one field. Otherwise the value goes on as it is, for the gateway to check.
+  if (idempotencyKey?.includes(",")) {
+    return problem(400, "INVALID_IDEMPOTENCY_KEY");
+  }
+
   const body = await readBody(request);
   if (!body.ok) {
     return body.response;
@@ -134,6 +143,9 @@ export async function proxyApiRequest(request: NextRequest, services: BffService
   const search = query.size > 0 ? `?${query.toString()}` : "";
   const target = new URL(path + search, env.gatewayOrigin);
   const headers = gatewayHeaders(session.access_token, forwardedFor);
+  if (idempotencyKey !== null) {
+    headers["Idempotency-Key"] = idempotencyKey;
+  }
   if (body.bytes !== null) {
     headers["Content-Type"] = "application/json";
   }

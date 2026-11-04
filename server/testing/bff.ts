@@ -56,7 +56,7 @@ export function testServices(
   prefix: string,
   options: SessionAccessOptions & { refreshTimeoutMs?: number; env?: Partial<ServerEnv> } = {},
 ): BffServices {
-  const store = new SessionStore(redis, prefix);
+  const store = new SessionStore(redis, prefix, options.now);
   const gateway = createAuthGateway(gatewayOrigin, { refreshTimeoutMs: options.refreshTimeoutMs });
   return { env: { ...testEnv, ...options.env }, store, gateway, access: new SessionAccess(store, gateway, options) };
 }
