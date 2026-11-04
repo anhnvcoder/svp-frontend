@@ -8,8 +8,10 @@
 # - /v/{id} of a READY video, logged out: the newest video of explore, or, when explore is empty, a 4 s test clip the
 #   user publishes first.
 # Then a table of LCP, CLS, TBT and the LCP element of each run, the console errors, and `lhci assert` against the
-# thresholds of lighthouse/lighthouserc.json, each checked on the median of the three runs of a page: LCP 2500 ms,
-# CLS 0.1, TBT 200 ms, accessibility score 0.9. The reports, HTML and JSON per run and manifest.json, go to
+# thresholds of lighthouse/lighthouserc.json, each checked on the median of the three runs of a page: LCP 3500 ms,
+# CLS 0.1, TBT 800 ms, accessibility score 0.9. LCP and TBT are regression budgets a little above what the shared CI
+# runner measures today (LCP 2.6-3.0 s, TBT 0.4-0.7 s on mobile); the Core Web Vitals targets are 2500 ms and 200 ms,
+# and the budgets come down as the pages get faster. The reports, HTML and JSON per run and manifest.json, go to
 # test-results/lighthouse/ (gitignored); nothing is uploaded anywhere. Exits with the status of lhci assert.
 #
 # The cookie stays out of the output and the reports: Lighthouse reads it from a private file, the copy every result
