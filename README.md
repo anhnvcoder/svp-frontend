@@ -111,8 +111,10 @@ file, mọi job của PR chỉ `contents: read` và không secret.
 - `ci.yml` (PR, push `main`, chạy tay): `check` (`make install`, `make check`, `make generate-check`, `make lockfile-scan`), `config`
   (luật của `.trivyignore.yaml` và `.grype.yaml`, `actionlint`), `gitleaks` (toàn lịch sử), `zizmor` (`make zizmor`, mọi finding
   chặn trừ ngoại lệ có lý do ở `.github/zizmor.yml`), `dependency-review` (chỉ PR: dependency PR thêm hay đổi có lỗ hổng high trở lên
-  là đỏ), `docs` (`make docs-check`), `sarif` (chỉ `main`), check tổng `ci-ok` (cần mọi job trên trừ `sarif`; chỉ `dependency-review`
-  được `skipped` khi sự kiện không phải PR). Job `stack` (ngoài `ci-ok`, không chặn merge): đọc commit backend mà stg chạy
+  là đỏ), `docs` (`make docs-check`), `sarif` (chỉ `main`), check tổng `ci-ok` (cần mọi job trên trừ `sarif`; `dependency-review`
+  được `skipped` khi sự kiện không phải PR; job `changes` chia PR theo vùng: PR chỉ tài liệu (`.md`, `docs/`, `LICENSE`) bỏ qua `check`,
+  `config`, `stack`, PR không đụng `.github/` bỏ qua `zizmor`, `stack` bỏ qua cả khi chỉ đổi `.github/`; đổi `Makefile`,
+  `.backend-commit` hay `ci.yml` thì chạy hết; `ci-ok` nhận đúng các skip đó). Job `stack` (ngoài `ci-ok`, không chặn merge): đọc commit backend mà stg chạy
   (`make stg-revision`), checkout backend ở commit đó (`make stg-check`), `make up IMAGES=stg WEB_FROM=clone` của backend (sáu service
   backend là bản phát hành của stg theo digest, web build từ PR này), `make smoke`, `make e2e`, `make lighthouse` (ba lượt mỗi trang, ngưỡng LCP, CLS, TBT và điểm accessibility lấy trung vị: vượt ngưỡng là job `stack` đỏ, vẫn ngoài `ci-ok` nên không chặn merge). Playwright thử lại test đỏ tối đa hai lần trên CI (`retries` ở `playwright.config.ts`); lượt đo luôn 0.
 - `images.yml` (PR, push `main`, chạy tay, lịch hằng ngày): `plan`; PR chỉ `build-nopush` (build, quét hai chân amd64, arm64); `main`:
