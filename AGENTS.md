@@ -38,7 +38,8 @@ Quy ước chung (ngôn ngữ, tài liệu timeless, ADR, comment, Git, repo pub
 ## Kiểm tra
 
 - `make install`, rồi `make check` (lint, Prettier, typecheck, Vitest, build, server standalone, ngân sách bundle),
-  `make generate-check` (bản sinh khớp hợp đồng đã ghim), `make lockfile-scan` (cổng lỗ hổng của lockfile).
+  `make generate-check` (bản sinh khớp hợp đồng đã ghim), `make lockfile-scan` (cổng lỗ hổng của lockfile), `make docs-check`
+  (markdownlint-cli2 và lychee `--offline` trên file `.md`; `DOCS='<file hay glob>'` thu hẹp).
 - Test e2e, đo, Lighthouse, source map (`make e2e`, `make measure-web`, `make measure-upload`, `make lighthouse`, `make sourcemaps`,
   `make k8s-e2e`, `make k8s-sourcemaps`) cần stack của backend đang chạy; máy 16 GB: không chạy compose và k3d cùng lúc.
 - Lighthouse chạy ba lượt mỗi trang, ngưỡng (LCP, CLS, TBT, điểm accessibility) lấy trung vị: vượt ngưỡng làm job `stack` của CI đỏ, job vẫn
@@ -46,7 +47,8 @@ Quy ước chung (ngôn ngữ, tài liệu timeless, ADR, comment, Git, repo pub
   nay; mục tiêu Core Web Vitals là 2500 ms, 200 ms, ngưỡng hạ dần khi trang nhanh lên. Trên CI Playwright thử lại test đỏ tối đa hai lần (`retries` ở `playwright.config.ts`); lượt đo luôn 0.
 - CI chạy lại trên máy: job `check` là ba lệnh đầu cộng `make lockfile-scan`; job `config` là `make backend-checkout`, rồi
   `SVP_CODE_ROOT="$PWD" .backend/deploy/ci/scan-gate.sh --check-ignorefile` và
-  `actionlint` (`make tools` cài); job `zizmor` là `make zizmor` (trên máy chỉ offline, không truyền token vào container).
+  `actionlint` (`make tools` cài); job `zizmor` là `make zizmor` (trên máy chỉ offline, không truyền token vào container); job `docs`
+  là `make docs-check`.
 
 ## Quy ước test
 
@@ -61,10 +63,10 @@ Quy ước chung (ngôn ngữ, tài liệu timeless, ADR, comment, Git, repo pub
 
 Chỉ dùng Redis local `127.0.0.1:6379`, luôn ghi rõ port (`redis-cli -p 6379 -n 15`):
 
-| Dùng cho                    | Redis db |
-| --------------------------- | -------- |
-| session của `make dev`      | 9        |
-| test (`make check`, Vitest) | 15       |
+| Dùng cho | Redis db |
+| --- | --- |
+| session của `make dev` | 9 |
+| test (`make check`, Vitest) | 15 |
 
 - Test Redis đọc `SVP_TEST_REDIS_URL` (`make check` đặt `redis://127.0.0.1:6379/15`); helper `server/testing/redis.ts` chỉ nhận db 15
   của `127.0.0.1:6379` hay `localhost:6379`, mỗi test một tiền tố khoá ngẫu nhiên `svp:test:<hex>:` và chỉ xoá khoá của tiền tố đó;
