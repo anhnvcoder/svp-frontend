@@ -4,8 +4,8 @@
 # guard of the CI scripts, actionlint, the secret scan of the whole git history, the security lint of the workflows
 # (zizmor) and, on pull requests, the review of the dependencies they change. Job ci-ok is the only check the
 # ruleset of main requires from this workflow, so the other jobs can be renamed or added without touching it. Job stack
-# runs this pull request's web client end to end against the backend staging runs, as a report outside ci-ok, so a
-# flaky run on a shared runner never blocks a merge.
+# runs this pull request's web client end to end against the backend staging runs, outside ci-ok, so a red run (a
+# flaky run on a shared runner, a Lighthouse threshold) never blocks a merge.
 #
 # The scripts shared with the backend repository (scan gate, platform guard) and the versions of its pinned tools are
 # read from .backend/, the backend checked out at the commit of .backend-commit (make backend-checkout), the one place
@@ -258,14 +258,14 @@ jobs:
   # envs/stg/images/ there (pulled by digest, no Go build), the web image built from this checkout; then the backend's
   # smoke run, the end-to-end tests on Chromium and WebKit, and Lighthouse. The three repositories sit side by side as
   # in the lab's workspace (frontend/, backend/, gitops/), and each script is told the other two through SVP_*_DIR.
-  # A report, not a check: ci-ok does not need it, so a red stack (a flaky end-to-end test on a shared runner, a backend
-  # release staging has not settled) never blocks a merge; whoever reads the pull request sees its result under this
-  # name. It builds and runs the pull request's code like the other jobs, with contents: read and no secret: the
+  # Outside ci-ok, which does not need it, so a red stack (a flaky end-to-end test on a shared runner, a Lighthouse
+  # threshold, a backend release staging has not settled) never blocks a merge; whoever reads the pull request sees its
+  # result under this name. It builds and runs the pull request's code like the other jobs, with contents: read and no secret: the
   # backend's make env writes a .env of fresh random secrets that lives on this runner until the job ends, never printed
   # or uploaded. The LOCAL LAB ONLY resets of smoke, the end-to-end seed and Lighthouse (they delete the gateway's
   # register rate limit keys in Redis db 10) touch only the Redis service container below, which belongs to this run.
   stack:
-    name: stack (end-to-end on the backend of staging, report only)
+    name: stack (end-to-end on the backend of staging, outside ci-ok)
     runs-on: ubuntu-24.04
     # Six pulls, one image build, the e2e seed, two browsers. The limit leaves room for a slow runner and stops a hung
     # step long before GitHub's default of 6 hours.
@@ -385,10 +385,9 @@ jobs:
           fi
           echo "apparmor: kernel.apparmor_restrict_unprivileged_userns" \
             "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)"
-      # Report only: one Lighthouse run per page on a shared runner is noise, so its thresholds never turn the job red.
+      # Three runs per page, each threshold read on the median: a threshold missed turns the job red (not ci-ok).
       - id: lighthouse
         run: make -C frontend lighthouse
-        continue-on-error: true
       - name: Container state
         if: failure()
         run: make -C backend ps

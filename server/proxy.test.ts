@@ -99,6 +99,29 @@ describe("proxy", () => {
     expect(headers.get("content-security-policy")).toMatch(/; upgrade-insecure-requests$/);
   });
 
+  it("asks for CSP violation reports at /monitoring of APP_ORIGIN when a DSN is set, also on a refused request", async () => {
+    const { proxy } = await loadProxy({ ...composeEnv, SENTRY_DSN: "http://0123abcd@glitchtip.test:8000/1" });
+    for (const response of [
+      proxy(request("/")),
+      proxy(request("/logout", "POST", { "sec-fetch-site": "cross-site" })),
+    ]) {
+      expect(response.headers.get("reporting-endpoints")).toBe('csp="http://localhost:3001/monitoring"');
+      expect(response.headers.get("content-security-policy")).toMatch(
+        /; frame-ancestors 'none'; report-to csp; report-uri http:\/\/localhost:3001\/monitoring$/,
+      );
+    }
+  });
+
+  it("asks for no CSP violation report without a DSN", async () => {
+    const { proxy } = await loadProxy();
+    for (const response of [proxy(request("/")), proxy(request("/logout", "POST"))]) {
+      expect(response.headers.get("reporting-endpoints")).toBeNull();
+      const csp = response.headers.get("content-security-policy") ?? "";
+      expect(csp).not.toContain("report-to");
+      expect(csp).not.toContain("report-uri");
+    }
+  });
+
   it("allows 'unsafe-eval' under next dev only", async () => {
     const { proxy } = await loadProxy(composeEnv, "development");
     expect(proxy(request("/")).headers.get("content-security-policy")).toContain("'strict-dynamic' 'unsafe-eval'");

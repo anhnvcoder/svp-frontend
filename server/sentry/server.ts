@@ -2,6 +2,7 @@ import "server-only";
 import * as Sentry from "@sentry/nextjs";
 import type { ServerEnv } from "../env";
 import { browserEvent, type BrowserReport } from "./browser-report";
+import { cspEvent, type CspReport } from "./csp-report";
 import { EventLimiter } from "./limiter";
 import { scrubBreadcrumb, scrubEvent } from "./scrub";
 
@@ -58,4 +59,9 @@ export function startErrorReporting(env: ServerEnv, transport?: Sentry.NodeOptio
 // the SDK's transport sends in the background, so a slow or dead GlitchTip never holds the browser's request.
 export function captureBrowserReport(report: BrowserReport, env: ServerEnv): void {
   Sentry.captureEvent(browserEvent(report, env));
+}
+
+/** Sends one CSP violation as a warning event; as {@link captureBrowserReport}, already validated and counted. */
+export function captureCspReport(report: CspReport, env: ServerEnv): void {
+  Sentry.captureEvent(cspEvent(report, env));
 }

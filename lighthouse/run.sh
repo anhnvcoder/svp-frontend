@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# `make lighthouse`, run from the repository root on the backend's compose stack (`make up` there): one Lighthouse run
+# `make lighthouse`, run from the repository root on the backend's compose stack (`make up` there): three Lighthouse runs
 # (@lhci/cli) of each of two pages in Playwright's Chromium, with Lighthouse's default mobile settings (an emulated
 # phone, simulated slow 4G and a 4x CPU slowdown; Lighthouse has no preset named mobile, its desktop preset is the other
 # one):
@@ -7,11 +7,12 @@
 #   (lighthouse/session.ts) and Lighthouse sends that session cookie with every request (extraHeaders);
 # - /v/{id} of a READY video, logged out: the newest video of explore, or, when explore is empty, a 4 s test clip the
 #   user publishes first.
-# Then a table of LCP, CLS, TBT and the LCP element of each page, the page's console errors, and `lhci assert` against
-# the thresholds of lighthouse/lighthouserc.json: LCP
-# 2500 ms, CLS 0.1, TBT 200 ms. The reports, HTML and JSON per page and manifest.json, go to test-results/lighthouse/
-# (gitignored); nothing is uploaded anywhere. One run has noise (Lighthouse advises the median of several): compare
-# runs on the same machine, do not read one as a commitment. Exits with the status of lhci assert.
+# Then a table of LCP, CLS, TBT and the LCP element of each run, the console errors, and `lhci assert` against the
+# thresholds of lighthouse/lighthouserc.json, each checked on the median of the three runs of a page: LCP 3500 ms,
+# CLS 0.1, TBT 800 ms, accessibility score 0.9. LCP and TBT are regression budgets a little above what the shared CI
+# runner measures today (LCP 2.6-3.0 s, TBT 0.4-0.7 s on mobile); the Core Web Vitals targets are 2500 ms and 200 ms,
+# and the budgets come down as the pages get faster. The reports, HTML and JSON per run and manifest.json, go to
+# test-results/lighthouse/ (gitignored); nothing is uploaded anywhere. Exits with the status of lhci assert.
 #
 # The cookie stays out of the output and the reports: Lighthouse reads it from a private file, the copy every result
 # records (configSettings.extraHeaders) is replaced before the reports are written, the run fails when a cookie value
@@ -89,11 +90,12 @@ cd "$reports"
 
 shopt -s nullglob
 results=("$lhci_dir"/lhr-*.json)
-((${#results[@]} == 2)) || fail "expected 2 Lighthouse results, found ${#results[@]}"
-# The feed was measured logged in: Lighthouse read the cookie file, and / did not redirect to /login.
-jq -se --arg u "$web_url/" 'map(select(.requestedUrl == $u)) | length == 1 and
-  (.[0].configSettings.extraHeaders | type) == "object" and .[0].finalDisplayedUrl == $u' "${results[@]}" >/dev/null ||
-  fail "the feed was not measured logged in (no session cookie sent, or / redirected to /login)"
+((${#results[@]} == 6)) || fail "expected 6 Lighthouse results (3 per page), found ${#results[@]}"
+# The feed was measured logged in in each of its three runs: Lighthouse read the cookie file, and / did not redirect
+# to /login.
+jq -se --arg u "$web_url/" 'map(select(.requestedUrl == $u)) | length == 3 and
+  all((.configSettings.extraHeaders | type) == "object" and .finalDisplayedUrl == $u)' "${results[@]}" >/dev/null ||
+  fail "the feed was not measured logged in on every run (no session cookie sent, or / redirected to /login)"
 for result in "${results[@]}"; do
   jq '.configSettings.extraHeaders |= (if type == "object" then map_values("[redacted]") else . end)' "$result" \
     >"$work/lhr.json"
@@ -111,7 +113,7 @@ if grep -qF -f "$work/cookie-values" "${results[@]}" "${written[@]}"; then
   fail "a session cookie value is still in a Lighthouse result or report (reports of this run removed)"
 fi
 
-echo "web-lighthouse (Lighthouse mobile, one run per page):"
+echo "web-lighthouse (Lighthouse mobile, three runs per page, thresholds on the median):"
 jq -rs --arg origin "$web_url" '.[] |
   "  \(.requestedUrl | ltrimstr($origin)): LCP \(.audits["largest-contentful-paint"].numericValue | round) ms," +
   " CLS \(.audits["cumulative-layout-shift"].numericValue * 1000 | round / 1000)," +

@@ -89,9 +89,9 @@ file, mọi job của PR chỉ `contents: read` và không secret.
   (luật của `.trivyignore.yaml` và `.grype.yaml`, `actionlint`), `gitleaks` (toàn lịch sử), `zizmor` (`make zizmor`, mọi finding
   chặn trừ ngoại lệ có lý do ở `.github/zizmor.yml`), `dependency-review` (chỉ PR: dependency PR thêm hay đổi có lỗ hổng high trở lên
   là đỏ), `sarif` (chỉ `main`), check tổng `ci-ok` (đủ năm job trên, chỉ `dependency-review` được `skipped` khi sự kiện không phải
-  PR). Job `stack` (chỉ báo, ngoài `ci-ok`): đọc commit backend mà stg chạy
+  PR). Job `stack` (ngoài `ci-ok`, không chặn merge): đọc commit backend mà stg chạy
   (`make stg-revision`), checkout backend ở commit đó (`make stg-check`), `make up IMAGES=stg WEB_FROM=clone` của backend (sáu service
-  backend là bản phát hành của stg theo digest, web build từ PR này), `make smoke`, `make e2e`, `make lighthouse` (đỏ không làm job đỏ).
+  backend là bản phát hành của stg theo digest, web build từ PR này), `make smoke`, `make e2e`, `make lighthouse` (ba lượt mỗi trang, ngưỡng LCP, CLS, TBT và điểm accessibility lấy trung vị: vượt ngưỡng là job `stack` đỏ, vẫn ngoài `ci-ok` nên không chặn merge). Playwright thử lại test đỏ tối đa hai lần trên CI (`retries` ở `playwright.config.ts`); lượt đo luôn 0.
 - `images.yml` (PR, push `main`, chạy tay, lịch hằng ngày): `plan`; PR chỉ `build-nopush` (build, quét hai chân amd64, arm64); `main`:
   `build` (trivy chặn bí mật và CRITICAL còn lại sau `.trivyignore.yaml`, grype trên SBOM chặn Critical còn lại sau `.grype.yaml`,
   rồi mới push), `merge` (index đa kiến trúc), `sign` (cosign keyless:
