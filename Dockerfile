@@ -34,7 +34,7 @@ RUN --mount=type=cache,target=/pnpm-store pnpm install --frozen-lockfile --store
 
 COPY . .
 # The build's id: the first 12 hex digits of the commit
-# in CI (the backend's deploy/ci/build-image.sh), dev- and a hash of this build context on the dev path of k3d
+# in CI (the backend's composite action image-leg), dev- and a hash of this build context on the dev path of k3d
 # (web_build_id of the backend's deploy/k8s/lib.sh), empty for compose. next.config.ts makes it Next's deploymentId. Declared here, after the install,
 # so a new id rebuilds from this step on and keeps the install layer.
 ARG SVP_BUILD_ID=

@@ -1,14 +1,14 @@
 # Checks of every pull request and of every push to main: lint, format, typecheck, unit tests, production build and
 # bundle budgets (make check), gen/api.d.ts as generated from the released API contract (make generate-check), the
-# vulnerability gate of the lockfile (make lockfile-scan), the rules of .trivyignore.yaml and .grype.yaml, the platform
-# guard of the CI scripts, actionlint, the secret scan of the whole git history, the security lint of the workflows
+# vulnerability gate of the lockfile (make lockfile-scan), the rules of .trivyignore.yaml and .grype.yaml,
+# actionlint, the secret scan of the whole git history, the security lint of the workflows
 # (zizmor), the Markdown lint and internal links (make docs-check) and, on pull requests, the review of the dependencies
 # they change. Job ci-ok is the only check the ruleset of main requires from this workflow, so the other jobs can be
 # renamed or added without touching it. Job stack
 # runs this pull request's web client end to end against the backend staging runs, outside ci-ok, so a red run (a
 # flaky run on a shared runner, a Lighthouse threshold) never blocks a merge.
 #
-# The scripts shared with the backend repository (scan gate, platform guard) and the versions of its pinned tools are
+# The scripts shared with the backend repository (scan gate) and the versions of its pinned tools are
 # read from .backend/, the backend checked out at the commit of .backend-commit (make backend-checkout), the one place
 # this repository pins it.
 #
@@ -201,8 +201,9 @@ jobs:
       # The backend at .backend-commit, anonymously over HTTPS: no token, no secret.
       - run: make backend-checkout
       # The only place an expired entry fails (grype reads no date, so its rule would go on covering the match), and a
-      # broken entry or rule merged into main would stop the image gate and the daily rescan of the web release. Needs
-      # no image, no tool and no token.
+      # broken entry or rule merged into main would stop the image gate and the daily rescan of the web release. The
+      # rules are conftest policies of the backend, run with the conftest and yq images its Makefile pins by digest,
+      # without network; no token.
       - name: Rules of .trivyignore.yaml and .grype.yaml
         run: SVP_CODE_ROOT="$PWD" .backend/deploy/ci/scan-gate.sh --check-ignorefile
       # Go only to build the two pinned tools below, at the Go of the backend's go.mod: no second pin.
