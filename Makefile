@@ -2,8 +2,9 @@
 #
 # Two copies of the backend repository (anhnvcoder/svp-backend) serve different ends (scripts/backend.sh):
 #   - .backend/, gitignored: the backend at the commit of .backend-commit (make backend-checkout), the one place that
-#     pins it. The scan gate and platform adapter of its deploy/ci/, the tools its Makefile pins by digest (trivy, ORAS,
-#     cosign) and its table of release sources are read there, the same on a machine and in CI.
+#     pins it. The scripts of its deploy/ci/ (scan gate, release helpers), the composite actions of the image pipeline
+#     (.github/actions/, CI only), the tools its Makefile pins by digest (trivy, ORAS, cosign) and its table of release
+#     sources are read there, the same on a machine and in CI.
 #   - SVP_BACKEND_DIR, default <workspace>/backend: the backend whose compose stack or cluster svp the end-to-end runs,
 #     measurements and source map uploads talk to, with its deploy/compose/lib.sh, deploy/k8s/lib.sh, .env and
 #     .k8s/ca.crt. Its working tree is read as it is.

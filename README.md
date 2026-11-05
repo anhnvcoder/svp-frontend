@@ -88,8 +88,9 @@ db 10 của stack (Valkey db 10 của cluster khi chạy k3d), bằng script c�
 
 ## Commit ghim của backend
 
-`.backend-commit` là chỗ duy nhất ghim commit backend mà repo này dùng script CI (`deploy/ci/`: cổng quét, build, ký và attest SBOM,
-`vuln`, rescan, helper của job `promote`) và công cụ ghim digest trong `Makefile` của nó (cả `YQ_IMAGE` của bước promote). `make backend-checkout` đưa `.backend/` (gitignore) về đúng commit đó, chỉ tải khi commit
+`.backend-commit` là chỗ duy nhất ghim commit backend mà repo này dùng composite action của pipeline image (`.github/actions/image-leg`,
+`image-index`, `image-sign`: build, quét, cổng, đẩy, gộp index, ký và attest SBOM, `vuln`, provenance), script CI (`deploy/ci/`: `plan.sh`,
+luật file ngoại lệ, rescan, helper của job `promote`) và công cụ ghim digest trong `Makefile` của nó (cả `YQ_IMAGE` của bước promote). `make backend-checkout` đưa `.backend/` (gitignore) về đúng commit đó, chỉ tải khi commit
 đổi; `.backend/` có thay đổi chưa commit thì dừng. Renovate theo dõi `main` của backend và mở PR nâng commit.
 
 ## Image
@@ -97,15 +98,16 @@ db 10 của stack (Valkey db 10 của cluster khi chạy k3d), bằng script c�
 `Dockerfile` ở gốc repo, context là gốc repo (`.dockerignore` loại `node_modules`, output build, `.env*`, `.git`, `.backend/` và
 công cụ của repo). Image chạy server standalone của Next trên Node distroless; source map trình duyệt không vào image, nằm ở stage
 `sourcemaps` (`make sourcemaps`, `make k8s-sourcemaps` tải lên GlitchTip của stack local). Build, quét, ký image phát hành chạy trong CI
-của repo này bằng script backend ở `.backend-commit`; promote lên stg là bước `yq` + `gh` của chính job `promote` (helper `yq_`,
+của repo này bằng composite action của backend ở `.backend-commit`; promote lên stg là bước `yq` + `gh` của chính job `promote` (helper `yq_`,
 `promote_open_pr`, `promote_image_row` của `deploy/ci/common.sh` ở commit ghim).
 
 ## CI và phát hành
 
 Workflow ở `.github/workflows/` chỉ nối bước (trừ job `promote`, bước của nó viết ngay trong `images.yml`); logic nằm ở `Makefile` của
-repo này và ở `deploy/ci/` của backend, chạy từ `.backend/`
-với `SVP_CODE_ROOT` trỏ checkout của repo này (script backend chọn nguồn phát hành `web` theo repository, đẩy dưới prefix
-`ghcr.io/anhnvcoder/svp-frontend/`, ký bằng identity của workflow phát hành của repo này). Mọi action ghim SHA commit, `permissions: {}` ở đầu
+repo này, ở composite action `image-leg`, `image-index`, `image-sign` của backend (`uses: ./.backend/.github/actions/<tên>` sau
+`make backend-checkout`, input `code-root` là checkout của repo này) và ở `deploy/ci/` của backend, chạy từ `.backend/` với `SVP_CODE_ROOT`
+trỏ checkout của repo này (action và script backend chọn nguồn phát hành `web` theo repository, đẩy dưới prefix
+`ghcr.io/anhnvcoder/svp-frontend/`, ký bằng identity của workflow phát hành của repo này: bước của composite action chạy trong job gọi nó). Mọi action ghim SHA commit, `permissions: {}` ở đầu
 file, mọi job của PR chỉ `contents: read` và không secret.
 
 - `ci.yml` (PR, push `main`, chạy tay): `check` (`make install`, `make check`, `make generate-check`, `make lockfile-scan`), `config`

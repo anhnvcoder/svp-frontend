@@ -1,4 +1,4 @@
-# Vulnerabilities grype leaves out of the scan of the web image's SBOM (the backend's deploy/ci/build-image.sh, run from
+# Vulnerabilities grype leaves out of the scan of the web image's SBOM (the grype step of the backend's composite action image-leg, run from
 # .backend/ by images.yml). grype reads this file whole (-c), so it holds only rules of this shape:
 #
 #   - vulnerability: <id>

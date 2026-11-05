@@ -10,3 +10,11 @@ rules:
       # lockfile. Both jobs have contents: read and no secret. zizmor no longer reports another ad-hoc install added
       # to ci.yml: the code owner of .github/ reads it in review.
       - ci.yml
+  self-repository:
+    ignore:
+      # images.yml calls the backend's composite actions image-leg, image-index and image-sign as
+      # ./.backend/.github/actions/<name>, from .backend/, the checkout of .backend-commit (make backend-checkout): they
+      # are not this repository's actions, which $/.github/actions/<name> would name, and their guards
+      # (deploy/ci/image-guard.sh, beside them in that checkout) read the backend's table of release sources and pinned
+      # tools there. File entry: the calls move with every edit of the jobs.
+      - images.yml
