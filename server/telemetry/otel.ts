@@ -16,12 +16,12 @@ import { vitals } from "./vitals";
 
 // Traces and metrics of the Next server over OTLP/gRPC to the Collector, as for the Go services (internal/telemetry).
 // Logs stay on stdout: no OTLP log exporter.
+// Design notes: docs/architecture.md.
 
-// W3C TraceContext on the calls the server makes, never read from the requests it receives.
-// Nothing in front of the compose web container drops
-// a browser's traceparent, so reading it would let any client pick the trace id of the web's spans and, through the
-// BFF's calls, of the gateway's. Every request to the web opens a new trace, Next's own span too (Next reads the
-// incoming context through this global propagator), and the BFF's calls carry that trace to the gateway. No baggage.
+// W3C TraceContext on the calls the server makes, never read from the requests it receives. Nothing in front of the
+// compose web container drops a browser's traceparent, so reading it would let any client pick the trace id of the
+// web's spans and, through the BFF's calls, of the gateway's. Every request opens a new trace, Next's own span too
+// (Next reads the incoming context through this global propagator). No baggage.
 const traceContext = new core.W3CTraceContextPropagator();
 
 export const injectOnlyPropagator: api.TextMapPropagator = {
@@ -58,10 +58,9 @@ export function skipUnrecordedPaths(sampler: tracing.Sampler): tracing.Sampler {
 }
 
 // The query and fragment of every URL or path in a text: `/a?b=c` becomes `/a`, `http://h/a?b#c` becomes `http://h/a`.
-// Each word (a run of text between white space) is cut at its first "?" or "#" that comes after a "/"; a word without
-// a "/" before its "?" is left alone. One pass, no regular expression: the text comes from the client (a request's
-// path, its User-Agent) and this runs twice on every span, so its cost has to stay linear in the length; a
-// backtracking URL pattern is quadratic on a long path without a "?" and blocks the event loop.
+// Each word is cut at its first "?" or "#" after a "/"; a word without a "/" before its "?" is left alone. One pass, no
+// regular expression: the text comes from the client and this runs twice on every span, so its cost has to stay
+// linear; a backtracking URL pattern is quadratic on a long path without a "?" and blocks the event loop.
 export function withoutQuery(text: string): string {
   let clean = "";
   // Text before this index is in `clean` already or dropped.
@@ -98,7 +97,7 @@ function scrubAttributes(attributes: api.Attributes): void {
   }
 }
 
-// No query string in any span (WEB-9): a query may hold a page token, a next= redirect or, on a URL of storage, the
+// No query string in any span: a query may hold a page token, a next= redirect or, on a URL of storage, the
 // signature of a presigned request. Next opens its request span with http.target = the raw URL, and its fetch span
 // with the full URL in the name and in http.url, outside of what the instrumentations' options reach, so this runs on
 // every span: on start, to rename it while that is still allowed, and on end, for attributes set while it ran.
@@ -222,14 +221,10 @@ export function telemetryConfig(env: ServerEnv, exports: TelemetryExport | null)
   };
 }
 
-// Starts the SDK with this configuration, and patches the http module that is already loaded. The http
-// instrumentation patches http when it is required after the SDK started, but that never happens in the server: Next's
-// start-server.js requires http before register() runs, and the bundle requires each built-in module once and keeps
-// it, so no require after the SDK started reaches the instrumentation's hook. Without the patch the web has no server
-// span of its own and no http.server.request.duration, the histogram of its availability SLO. Loading http once more
-// through the hook the instrumentation installed patches the module in place, including http.Server.prototype.emit,
-// which the server Next has already created looks up on every request. process.getBuiltinModule, not require: the
-// bundler would turn a require into its cached copy of the module, which never reaches the hook.
+// Starts the SDK and patches the http module that is already loaded: Next's start-server.js requires http before
+// register() runs, and the bundle keeps each built-in module once, so no later require reaches the instrumentation's
+// hook. Without the patch the web has no server span of its own and no http.server.request.duration, the histogram of
+// its availability SLO. process.getBuiltinModule, not require: the bundler would turn a require into its cached copy.
 export function startSdk(config: TelemetryConfig): NodeSDK {
   const sdk = new NodeSDK(config);
   sdk.start();

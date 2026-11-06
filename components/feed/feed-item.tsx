@@ -38,15 +38,15 @@ type FeedItemProps = {
   onToggleMute: () => void;
   onRetry: () => void;
   // "share": the one video of the share page, which shows the author, title and actions in a side panel on wide
-  // screens (design/SVP Desktop.dc.html D04) instead of over and beside the video.
+  // screens instead of over and beside the video.
   variant?: "feed" | "share";
 };
 
 // Overlay pills and scrims over video are fixed shades of black in both themes, like the white of on-media.
 const pill = "bg-[oklch(0_0_0/0.4)]";
 
-// One video of the vertical feed: the item fills the page box and snaps (design/FeedMobile.dc.html, rail layout;
-// FeedDesktop.dc.html on wide screens: a 9:16 column with the actions beside it).
+// One video of the vertical feed: the item fills the page box and snaps; on wide screens a 9:16 column with the
+// actions beside it.
 export function FeedItem({
   index,
   title,

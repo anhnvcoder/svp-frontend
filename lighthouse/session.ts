@@ -5,7 +5,7 @@ import { chromium } from "@playwright/test";
 // Logs a user in through the web's login page in Playwright's Chromium, as a person would, and writes the session
 // cookie for lighthouse/run.sh into the private work folder it names: headers.json ({"Cookie": ...}) for Lighthouse's
 // extraHeaders and cookie.txt (a "Cookie: ..." line) for curl's -H @file at logout. The cookie is never printed.
-//
+
 // Usage: node lighthouse/session.ts WEB_URL CREDENTIALS_FILE WORK_DIR, where CREDENTIALS_FILE holds
 // {"email", "password"} as new_user of deploy/compose/lib.sh writes it.
 const [webURL, credentialsFile, workDir] = process.argv.slice(2);

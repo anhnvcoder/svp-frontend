@@ -3,13 +3,10 @@ import type { ErrorEvent } from "@sentry/nextjs";
 import { z } from "zod";
 import { routeTemplate } from "./browser-report";
 
-// A browser's Content-Security-Policy violation report to POST /monitoring, by the media type browsers send:
-// `application/reports+json` (Reporting API, the policy's report-to: a list of reports) and `application/csp-report`
-// (the policy's report-uri: a CSP Level 2 `{"csp-report": ...}` body, or, from WebKit, one Reporting API report). All
-// become one small shape holding only what tells where the policy blocked what. Left out on
-// purpose: `sample` (the first characters of the blocked script or style, page content), `originalPolicy` (the
-// policy itself, with the page's nonce) and `referrer` (the page the user came from, often another site). URLs keep
-// their origin and path only.
+// A browser's Content-Security-Policy violation report to POST /monitoring, by the media type browsers send. All become
+// one small shape holding only what tells where the policy blocked what. Left out on purpose: `sample` (the first
+// characters of the blocked script or style, page content), `originalPolicy` (the policy itself, with the page's
+// nonce) and `referrer` (the page the user came from, often another site). URLs keep their origin and path only.
 
 /** Media type of the Reporting API's reports. */
 export const reportsMediaType = "application/reports+json";

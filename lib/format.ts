@@ -20,11 +20,10 @@ const minuteMs = 60_000;
 const hourMs = 60 * minuteMs;
 const dayMs = 24 * hourMs;
 
-// How long ago a video was published, as the feed writes it beside the author ("5 phút trước", "3 hours ago"): under a
-// minute `justNow` (the caller's translated "vừa xong"), then minutes, hours and days, and from 7 days on the date
-// ("21 thg 10", "Oct 21", with the year when it is not this year's). A time slightly ahead of `now` (clocks of two
-// machines) also reads `justNow`. `now` is passed in, so the server render, hydration and tests agree on it; `timeZone`
-// fixes which calendar day a date falls on. Null when `value` is not a date.
+// How long ago a video was published, as the feed writes it ("5 phút trước", "3 hours ago"): under a minute, or
+// slightly ahead of `now` (clocks of two machines), `justNow` (the caller's translated "vừa xong"); then minutes,
+// hours and days; from 7 days on the date ("21 thg 10", "Oct 21", with the year when it is not this year's). `now` is
+// passed in, so server render, hydration and tests agree; `timeZone` fixes which day a date falls on. Null: not a date.
 export function formatRelativeTime(
   value: string,
   now: number,

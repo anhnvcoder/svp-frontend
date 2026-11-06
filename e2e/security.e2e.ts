@@ -14,8 +14,8 @@ import {
 import { seed } from "./seed";
 import { stack } from "./stack";
 
-// The web rows of the threat model checked in a browser (docs/threat-model.md, section 4.9): WEB-1, WEB-2, WEB-4,
-// WEB-6, WEB-10, and the Content-Security-Policy (a script nonce new on every response, connect-src of /upload).
+// The web rows of the threat model checked in a browser (docs/threat-model.md), and the
+// Content-Security-Policy (a script nonce new on every response, connect-src of /upload).
 
 // Compose serves plain http on localhost: the session cookie has no prefix and no Secure. On k3d,
 // over https, it is __Host-Http-svp_sid with Secure (e2e/stack.ts).

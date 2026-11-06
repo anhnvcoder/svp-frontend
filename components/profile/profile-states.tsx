@@ -7,8 +7,7 @@ import { Button, Skeleton } from "@/components/ui";
 import { focusRing } from "@/components/ui/styles";
 import { cn } from "@/lib/cn";
 
-// The profile pages' states without a video (design/SVP Mobile.dc.html M37): loading, empty, a page that failed,
-// and the profile 404.
+// The profile pages' states without a video: loading, empty, a page that failed, and the profile 404.
 
 function Message({
   icon: Icon,
@@ -46,7 +45,7 @@ export function EmptyMyVideos() {
   );
 }
 
-// M37. `name` is the user's own text, passed into the translated sentence as a value (React escapes it).
+// `name` is the user's own text, passed into the translated sentence as a value (React escapes it).
 export function EmptyProfileVideos({ name }: { name: string }) {
   const t = useTranslations("profile.other.empty");
   return <Message icon={Film} title={t("title")} body={t("body", { name })} />;

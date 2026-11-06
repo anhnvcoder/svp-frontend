@@ -16,7 +16,7 @@ export type RowProgress = {
 };
 
 type MyVideoRowProps = {
-  // The user's own text, rendered as React text only (WEB-1); empty when the video has none.
+  // The user's own text, rendered as React text only; empty when the video has none.
   title: string;
   status: VideoStatus;
   // The share page of a READY video.
@@ -33,8 +33,8 @@ type MyVideoRowProps = {
   progress: RowProgress | null;
 };
 
-// One of the user's videos (design/SVP Mobile.dc.html M33–M34; SVP Desktop.dc.html D09): on a phone the details
-// stack beside the thumbnail, on a wide screen they sit in the columns of the list's header.
+// One of the user's videos: on a phone the details stack beside the thumbnail, on a wide screen they sit in the
+// columns of the list's header.
 export function MyVideoRow({
   title,
   status,

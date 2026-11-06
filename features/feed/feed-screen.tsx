@@ -313,7 +313,6 @@ export function FeedScreen({
     return () => clearTimeout(timer);
   }, [toast, locked]);
 
-  // Back online: a video that failed while offline loads again.
   const retryAfterReconnect = useEffectEvent(() => {
     if (playback[active] === "error") {
       pool.current?.retry(active);
@@ -531,7 +530,6 @@ type FeedEntryProps = {
   onRetry: () => void;
 };
 
-// One item with its own like state.
 function FeedEntry({ item, mediaOrigin, nearby, onLikeError, ...props }: FeedEntryProps) {
   const like = useLike(item.video_id, item.stats, onLikeError);
   return (

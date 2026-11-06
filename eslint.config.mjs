@@ -15,7 +15,7 @@ export default defineConfig([
   {
     rules: {
       ...jsxA11y.flatConfigs.recommended.rules,
-      // Text from users (titles, names) is rendered as React text only: raw HTML would be a stored XSS (WEB-1).
+      // Text from users (titles, names) is rendered as React text only: raw HTML would be a stored XSS.
       "react/no-danger": "error",
       "@typescript-eslint/no-unused-vars": "error",
     },

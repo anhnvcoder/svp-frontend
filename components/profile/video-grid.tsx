@@ -17,11 +17,10 @@ export type GridVideo = {
   duration: string | null;
 };
 
-// Another user's READY videos (design/SVP Mobile.dc.html M35–M36; SVP Desktop.dc.html D10): 3 columns on a phone,
-// 6 on a wide screen, each tile a link to the video with its views and length over a shade at the bottom. The link is
-// named by its content: the title, for screen readers only, then the views and length it shows. An aria-label would
-// hide the shown text from the name (WCAG 2.5.3, axe's label-content-name-mismatch), and a voice user who says what
-// they see would not reach the tile.
+// Another user's READY videos: 3 columns on a phone, 6 on a wide screen, each tile a link to the video with its views
+// and length over a shade at the bottom. The link is named by its content: the title, for screen readers only, then the
+// views and length it shows. An aria-label would hide the shown text from the name (WCAG 2.5.3, axe's
+// label-content-name-mismatch), and a voice user who says what they see would not reach the tile.
 export function VideoGrid({ label, videos }: { label: string; videos: readonly GridVideo[] }) {
   return (
     <ul

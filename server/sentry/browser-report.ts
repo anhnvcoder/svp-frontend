@@ -3,8 +3,8 @@ import type { ErrorEvent, StackFrame } from "@sentry/nextjs";
 import { z } from "zod";
 import { withoutQuery } from "./scrub";
 
-// A browser's error report to POST /monitoring. The
-// browser carries no Sentry SDK and no DSN: it sends this small closed shape, and the server builds the event from it.
+// A browser's error report to POST /monitoring. The browser carries no Sentry SDK and no DSN: it sends this small
+// closed shape, and the server builds the event from it.
 
 const debugIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

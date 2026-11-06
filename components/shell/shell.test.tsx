@@ -95,7 +95,7 @@ describe("navigation", () => {
     ["/following", ["/", "/"]],
     ["/upload", ["/upload", "/upload"]],
     ["/me", ["/me", "/me"]],
-    // Another user's profile is not the Profile item, which is the user's own (M35–M37).
+    // Another user's profile is not the Profile item, which is the user's own.
     ["/u/minhanh", []],
     ["/v/01928c6e-7b3a-7cde-8f01-000000000001", []],
     ["/me/videos", []],

@@ -13,9 +13,9 @@ type AuthorLineProps = {
   publishedAgo: string | null;
 };
 
-// The author's name, @handle and the video's age above the title, over the video (design/FeedMobile.dc.html M01).
-// The name is the user's own text and is rendered as React text only (WEB-1); <bdi> keeps any right-to-left text in it
-// from reordering the handle and the age after it (WEB-18).
+// The author's name, @handle and the video's age above the title, over the video. The name is the user's own text and
+// is rendered as React text only; <bdi> keeps any right-to-left text in it from reordering the handle and the age
+// after it.
 export function AuthorLine({ author, href, publishedAgo }: AuthorLineProps) {
   const name = <bdi className="text-base font-semibold break-all">{author?.displayName}</bdi>;
   return (

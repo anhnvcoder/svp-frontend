@@ -15,18 +15,15 @@ import {
 import { seed } from "./seed";
 import { stack } from "./stack";
 
-// Screenshots of the screens of the web client for a person to compare with the design frames of design/ (SVP
-// Mobile, SVP Desktop): each screen full page at a phone and a desktop size, in Vietnamese, saved as
-// <SVP_E2E_EVIDENCE>/screens/<browser>/<frame>-<name>-<mobile|desktop>.png. playwright.config.ts runs this file only
-// when SVP_E2E_EVIDENCE is set. The password field is never switched to plain text, so no password shows; the only
-// data changed is the run's own: users registered here, a like on the seeded video of e2e/seed.sh, a follow of its
-// author, and one uploaded clip.
-//
+// Screenshots of the web client's screens for a person to compare with the design frames of design/ (SVP Mobile, SVP
+// Desktop): each full page at a phone and a desktop size, in Vietnamese, saved as <SVP_E2E_EVIDENCE>/screens/<browser>/
+// <frame>-<name>-<mobile|desktop>.png. playwright.config.ts runs this file only when SVP_E2E_EVIDENCE is set. The
+// password field is never switched to plain text, so no password shows; the only data changed is the run's own.
+
 // The `test` of e2e/fixtures.ts, for its worker set-up (the register rate limit reset), with its CSP watcher turned off:
 // in WebKit every page.screenshot() adds a <style> element to the page (Playwright toggles a style sheet to sync
-// animations, whatever the options), which the app's CSP rightly refuses and the watcher would report. Every other spec
-// runs the same pages under the watcher.
-// The override keeps the fixture automatic, so it still runs for every test, now without a page or a check.
+// animations, whatever the options), which the app's CSP rightly refuses and the watcher would report. The override
+// keeps the fixture automatic, so it still runs for every test, now without a page or a check.
 const test = fixturesTest.extend({ cspViolations: async ({}, provide) => provide([]) });
 
 test.use({ locale: "vi-VN" });

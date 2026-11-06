@@ -1,5 +1,5 @@
 // Which item of the navigation is the current page (design/BottomNav.dc.html, SidebarDesktop.dc.html). Profile is
-// the user's own profile, /me; another user's profile at /u/<handle> marks nothing, as in the design (M35–M37).
+// the user's own profile, /me; another user's profile at /u/<handle> marks nothing, as in the design.
 export type NavItem = "home" | "upload" | "profile";
 
 // Routes where Home is the current page: the two tabs of the feed.

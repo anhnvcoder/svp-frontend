@@ -3,8 +3,7 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { ErrorScreen, primaryAction } from "@/components/shell/error-screen";
 
-// Every video nobody may watch here: no such id, a malformed id, a video not READY (design/SVP Mobile.dc.html M39,
-// SVP Desktop.dc.html D11).
+// Every video nobody may watch here: no such id, a malformed id, a video not READY.
 export default async function VideoNotFound() {
   const [t, errors, common] = await Promise.all([
     getTranslations("share"),

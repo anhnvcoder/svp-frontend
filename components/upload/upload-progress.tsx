@@ -6,7 +6,7 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
-// Step 3 while the file goes up (M28, M29): percentage, bar, sizes and speed, the file, and cancel. On a failure that
+// Step 3 while the file goes up: percentage, bar, sizes and speed, the file, and cancel. On a failure that
 // can be resumed it also offers "Retry".
 
 type UploadProgressProps = {

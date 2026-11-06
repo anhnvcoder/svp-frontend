@@ -7,7 +7,7 @@ import { Button } from "@/components/ui";
 import { focusRing } from "@/components/ui/styles";
 import { cn } from "@/lib/cn";
 
-// Step 2 (M25, M26): the chosen file and the title, then "Post video".
+// Step 2: the chosen file and the title, then "Post video".
 
 type DetailsFormProps = {
   fileName: string;

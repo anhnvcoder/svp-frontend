@@ -81,11 +81,10 @@ export function failureState(email: string, failure: AuthFailure, handle = ""): 
   return state;
 }
 
-// Where to go after login: a path of this app, else / (WEB-4). The check runs on the target actually returned, after
-// the URL parser has resolved `..` and `%2e%2e`: `/a/..//evil.example` passes an origin check yet comes out as
-// `//evil.example`, which a browser reads as another host. A target whose path starts with // or /\ (also once
-// percent-decoded) or holds a control character is refused, and so is a raw value with a backslash or a control
-// character, which the parser would otherwise drop or turn into a slash.
+// Where to go after login: a path of this app, else /. The check runs on the target the URL parser returns, after it
+// resolves `..` and `%2e%2e`: `/a/..//evil.example` passes an origin check yet comes out as `//evil.example`, which a
+// browser reads as another host. Refused: a path starting with // or /\ (also percent-decoded) or holding a control
+// character, and a raw value with a backslash or control character, which the parser drops or turns into a slash.
 export function safeNext(next: FormDataEntryValue | string | null | undefined, appOrigin: string): string {
   if (typeof next !== "string" || !next.startsWith("/") || /[\\\x00-\x1f\x7f]/.test(next)) {
     return "/";

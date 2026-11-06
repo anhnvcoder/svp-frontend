@@ -1,20 +1,19 @@
-# Image of the web client: Next's standalone server on the
-# distroless Node runtime. Build context is the repository's root (its .dockerignore leaves out node_modules, build
-# output, .env*, git's data and the backend checkout):
-#   env -u DOCKER_DEFAULT_PLATFORM docker build -t svp/web:dev .
-# No secret and no runtime setting goes into the build: GATEWAY_URL, REDIS_URL, APP_ORIGIN, MEDIA_ORIGIN, UPLOAD_ORIGIN,
-# SENTRY_DSN, SENTRY_ENVIRONMENT, NEXT_SERVER_ACTIONS_ENCRYPTION_KEY and the OTEL_* variables of the OpenTelemetry SDK are
-# read by the server when it starts or when a request needs them, so one image runs in compose and in the cluster. The
-# one build argument, SVP_BUILD_ID, is the build's id, not a setting (below).
-# The browser bundle's source maps are left out of the image; the stage `sourcemaps` holds them, from the same build:
-#   env -u DOCKER_DEFAULT_PLATFORM docker build --target sourcemaps --output type=local,dest=<directory> .
-# No `# syntax=` line: BuildKit's built-in frontend runs RUN --mount, and a syntax image
-# would be one more image pulled by a tag.
+# Image of the web client: Next's standalone server on the distroless Node runtime. Build context is the repository's
+# root (its .dockerignore leaves out node_modules, build output, .env*, git's data and the backend checkout).
+# Design notes: README.md.
+
+# No secret and no runtime setting goes into the build: the server reads them when it starts or when a request needs
+# them, so one image runs in compose and in the cluster. The one build argument, SVP_BUILD_ID, is the build's id, not a
+# setting (below).
+
+# The browser bundle's source maps are left out of the image; the stage `sourcemaps` holds them, from the same build.
+# No `# syntax=` line: BuildKit's built-in frontend runs RUN --mount, and a syntax image would be one more image pulled
+# by a tag.
 
 # Build stage. Every base image is pinned by the digest of its multi-arch index (linux/amd64 and linux/arm64), so the
 # same commit builds from the same base on the machine and in CI, and Renovate proposes each new digest as a reviewed
-# change. The Node major (26, also in the runtime image's
-# name below) moves with .nvmrc and engines of package.json in one Renovate pull request.
+# change. The Node major (26, also in the runtime image's name below) moves with .nvmrc and engines of package.json in
+# one Renovate pull request.
 FROM node:26-trixie@sha256:6d2c7d5d074bf72f81ddc252b4fbb5d625bc028eeda49cb4b8c2ff8eda1ee617 AS build
 WORKDIR /src
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -27,29 +26,19 @@ COPY package.json ./
 RUN npm install -g --ignore-scripts "pnpm@$(node -p 'require("./package.json").packageManager.split("@")[1]')"
 
 # The manifests before the sources, so the install layer is reused until a dependency or a pnpm setting changes; the
-# store is a build cache, never part of the image. --frozen-lockfile fails instead of resolving anew, and
-# pnpm-workspace.yaml brings the install rules (minimumReleaseAge, strictDepBuilds, trustPolicy, no sharp).
+# store is a build cache, never part of the image. --frozen-lockfile fails instead of resolving anew.
 COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN --mount=type=cache,target=/pnpm-store pnpm install --frozen-lockfile --store-dir /pnpm-store
 
 COPY . .
-# The build's id: the first 12 hex digits of the commit
-# in CI (the backend's composite action image-leg), dev- and a hash of this build context on the dev path of k3d
-# (web_build_id of the backend's deploy/k8s/lib.sh), empty for compose. next.config.ts makes it Next's deploymentId. Declared here, after the install,
-# so a new id rebuilds from this step on and keeps the install layer.
+# The build's id: the first 12 hex digits of the commit in CI (image-leg), dev- and a hash of this build context on the
+# dev path of k3d (web_build_id of the backend's deploy/k8s/lib.sh), empty for compose. next.config.ts makes it Next's
+# deploymentId. Declared after the install, so a new id rebuilds from this step on and keeps the install layer.
 ARG SVP_BUILD_ID=
-# Source maps: next build writes one beside each browser chunk and stylesheet, each file ending with a
-# sourceMappingURL comment that names its map (a hashed name of its own), and maps of the server's bundles in the
-# standalone tree. A served map would publish the whole client source, so:
-#   - every map of .next/static moves to /sourcemaps/_next/static (the path the browser fetches the chunk from), with a
-#     copy of each JavaScript chunk that names a map: the chunk as built, whose comment pairs it with its map for the
-#     upload (make sourcemaps), and whose debug id is the one the served chunk carries;
-#   - the served chunks and stylesheets lose that comment (a "hidden" map: the bundle names none), which is their last
-#     line, so every other line and column, and the debug id comment, stay what the map describes;
-#   - the server's maps are deleted, as before.
-# The checks after fail the build when a map, or the word sourceMappingURL in any form, is left for the runtime stage.
-# The build and the moves are two steps of this stage only: the runtime stage below copies the result, never the
-# layers, so no map reaches the image.
+# A served map would publish the whole client source, so every map of .next/static moves to /sourcemaps (stage
+# sourcemaps), the served chunks and stylesheets lose their sourceMappingURL comment, and the server's maps are
+# deleted. The checks after fail the build when a map, or the word sourceMappingURL in any form, is left for the
+# runtime stage, which copies the result, never the layers.
 RUN pnpm build
 WORKDIR /src/.next
 RUN mkdir -p /sourcemaps/_next && \

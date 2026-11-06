@@ -15,9 +15,8 @@ type MyAccountProps = {
   children?: ReactNode;
 };
 
-// Top of "My videos" (design/SVP Mobile.dc.html M33–M34; SVP Desktop.dc.html D09). On a phone a bar with the title
-// and log out: the bottom bar has no log out, so this page must. On a wide screen the side bar has it, and the account
-// row gets the upload link instead.
+// Top of "My videos". On a phone a bar with the title and log out: the bottom bar has no log out, so this page must.
+// On a wide screen the side bar has it, and the account row gets the upload link instead.
 export function MyAccount({ userId, account, children }: MyAccountProps) {
   const t = useTranslations("profile.my");
   return (
@@ -36,7 +35,7 @@ export function MyAccount({ userId, account, children }: MyAccountProps) {
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             {account && (
               <>
-                {/* <bdi>: right-to-left text in the name does not reorder what follows it (WEB-18). */}
+                {/* <bdi>: right-to-left text in the name does not reorder what follows it. */}
                 <strong className="text-[17px] font-semibold break-all md:text-2xl md:font-bold">
                   <bdi>{account.displayName}</bdi>
                 </strong>

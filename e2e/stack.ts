@@ -1,13 +1,11 @@
-// The stack an end-to-end run talks to, from SVP_STACK: `compose` (default, `make e2e`) or `k3d` (`make
-// k8s-e2e`). Every origin, and the session cookie's form, comes from here, so no spec names one stack's address.
-//
-// compose: the `web` container at http://localhost:3001, the gateway and the object store (service s3) on their
-// loopback ports. Plain http, so the session cookie has no prefix and no Secure.
-// k3d: cluster svp behind Envoy on 127.0.0.1:8443, one name per route:
-// the web at https://svp.localhost:8443, the gateway at
-// api.svp.localhost, the storage (uploads and media) at s3.svp.localhost; every *.localhost name resolves to loopback
-// in Chromium and WebKit alike. https, so the cookie is __Host-Http-svp_sid with Secure. The cluster's certificates
-// come from its own CA (.k8s/ca.crt).
+// The stack an end-to-end run talks to, from SVP_STACK: `compose` (default, `make e2e`) or `k3d` (`make k8s-e2e`).
+// Every origin, and the session cookie's form, comes from here, so no spec names one stack's address.
+// Design notes: docs/architecture.md.
+
+// compose: plain http, so the session cookie has no prefix and no Secure.
+// k3d: cluster svp behind Envoy, one name per route; every *.localhost name resolves to loopback in Chromium and
+// WebKit alike. https, so the cookie is __Host-Http-svp_sid with Secure. The cluster's certificates come from its own
+// CA (.k8s/ca.crt).
 
 const name = process.env.SVP_STACK || "compose";
 if (name !== "compose" && name !== "k3d") {

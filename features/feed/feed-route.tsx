@@ -6,12 +6,10 @@ import { loadFirstFeedPage } from "@/server/feed";
 import type { FeedKind } from "./api";
 import { FeedScreen } from "./feed-screen";
 
-// Server part of the two feed pages. The first page is in the page's HTML, not streamed in behind a skeleton: its first
-// poster is the page's largest paint, and React reveals content streamed into a Suspense boundary in batches, up to
-// about 300 ms after the previous reveal, so that paint would wait while the page's scripts load and run. The HTML
-// therefore waits for the first page, at most the gateway's timeout (server/feed.ts); without a page the client fetches
-// it behind the skeleton. A tab switch still answers at once: the feed screen lays the skeleton over the old tab while
-// the router waits for the new one (feed-screen.tsx).
+// The first page is in the page's HTML, not streamed in behind a skeleton: its first poster is the page's largest
+// paint, and React reveals content streamed into a Suspense boundary in batches, up to about 300 ms after the previous
+// reveal, so that paint would wait while the page's scripts load and run. The HTML therefore waits for the first page,
+// at most the gateway's timeout (server/feed.ts); without a page the client fetches it behind the skeleton.
 export function FeedRoute({ kind }: { kind: FeedKind }) {
   const messages = useMessages();
   return (

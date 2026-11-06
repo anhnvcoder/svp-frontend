@@ -1,22 +1,19 @@
 #!/usr/bin/env bash
 # The gateway's REST contract, as the backend releases it: never a copy of the backend's spec file, always the release
 # that api/contract.json pins (repository, version, digest), read anonymously from the registry.
-#
+# Design notes: README.md.
+
 #   contract.sh generate  writes gen/api.d.ts (openapi-typescript) from the pinned release;
 #   contract.sh check     generates into a scratch folder and fails, printing the diff, when gen/api.d.ts differs;
 #                         nothing of the working tree is written.
-#
-# Before anything is generated, the release must be what the pin says and signed by whom the pin cannot choose:
-#   - the manifest fetched by digest hashes to that digest, is a contract release (its artifact type, one OpenAPI
-#     layer) and names the pinned version; the tag of that version points at the same digest, so a pin whose version
-#     and digest disagree fails instead of generating from either;
-#   - cosign verifies a keyless signature of repository@digest by the identity of release source backend (issuer and
-#     subject from the table of release sources of the backend at .backend-commit, the table Kyverno and every
-#     verifier read): a contract pushed by anyone else, or signed by another workflow, fails;
-#   - the layer fetched hashes to the digest the manifest names.
-# Any failure leaves gen/ untouched. Runs from the Makefile, after the checkout of .backend/ (scripts/backend.sh
-# checkout) and with Node and pnpm of this repository first on PATH; needs docker (the pinned ORAS, and cosign unless
-# one is on PATH), jq and the network.
+
+# Before anything is generated, the release must be what the pin says and signed by whom the pin cannot choose: the
+# manifest fetched by digest hashes to that digest, is a contract release (artifact type, one OpenAPI layer) and names
+# the pinned version, and the tag of that version points at the same digest; cosign verifies a keyless signature by the
+# identity of release source backend (the table of release sources at .backend-commit); the layer hashes to its digest.
+
+# Any failure leaves gen/ untouched. Needs docker (the pinned ORAS, and cosign unless one is on PATH), jq and the
+# network.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd -P)

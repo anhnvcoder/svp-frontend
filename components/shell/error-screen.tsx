@@ -12,7 +12,7 @@ type ErrorScreenProps = {
   footnote?: ReactNode;
 };
 
-// Full-page state of design/SVP Mobile.dc.html M39–M41 and SVP Desktop.dc.html D11: the app name on top, then a
+// Full-page state of the design (SVP Mobile.dc.html, SVP Desktop.dc.html): the app name on top, then a
 // centered icon, title, explanation and actions.
 export function ErrorScreen({ appName, status, icon, title, body, children, footnote }: ErrorScreenProps) {
   return (

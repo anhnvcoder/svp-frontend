@@ -6,19 +6,15 @@ import { test as base, expect, type BrowserContext, type Locator, type Page } fr
 import { stack } from "./stack";
 
 // Shared helpers of the end-to-end tests.
-//
+// Design notes: docs/architecture.md.
+
 // Rate limits: the BFF reaches the gateway from the one address of the `web` container, so all browsers share the
-// gateway's per-IP buckets: register (burst 20 per hour), login-ip (burst 30,
-// 60 per minute). Test users are therefore registered straight at the gateway, and each project logs in through the
-// web about 8 times and registers through it once (the main flow); e2e/seed.sh resets the register bucket before every
-// run. Each user logs in at most 3 times, under the login-email burst of 5. Registering at the gateway uses the bucket
-// of this machine, also a burst of 20 refilled one a minute: a whole run registers more users than that within a few
-// minutes (28 in an evidence run), so every worker resets the register buckets again before its first test (the
-// registerLimitReset fixture, LOCAL LAB ONLY). A worker runs one project, at most 9 registrations (chromium or webkit in
-// an evidence run, its sessionAccount included); a new test still reuses the worker's sessionAccount when it can. On
-// k3d every registration of a worker, through the BFF or straight at the gateway, lands in one bucket: the BFF passes
-// X-Forwarded-For on as it received it and the gateway reads the address Envoy wrote (server/gateway.ts), the same for
-// both. The budget is tighter there than on compose; the reset before each worker's first test keeps it under the burst.
+// gateway's per-IP buckets: register (burst 20 per hour), login-ip (burst 30, 60 per minute). Test users are therefore
+// registered straight at the gateway, and every worker resets the register buckets before its first test (the
+// registerLimitReset fixture, LOCAL LAB ONLY).
+
+// On k3d every registration of a worker, through the BFF or straight at the gateway, lands in one bucket (the BFF
+// passes X-Forwarded-For on, the gateway reads the address Envoy wrote): the budget is tighter there than on compose.
 
 // The gateway as e2e/seed.sh reaches it: its loopback port on compose, through Envoy on k3d (e2e/stack.ts).
 export const gatewayURL = stack.gatewayURL;
@@ -26,7 +22,6 @@ export const gatewayURL = stack.gatewayURL;
 export type Credentials = { email: string; password: string };
 export type Account = Credentials & { handle: string; userId: string };
 
-// A handle of the form people choose, random per call.
 export function randomHandle(): string {
   return `e2e_${randomBytes(6).toString("hex")}`;
 }
@@ -37,8 +32,7 @@ export function generatedHandle(userId: string): string {
   return `u_${userId.slice(-12)}`;
 }
 
-// A fresh random user with a handle of its own, registered at the gateway. Every run gets new users, so no test
-// depends on an earlier run.
+// Registered at the gateway. Every run gets new users, so no test depends on an earlier run.
 export async function registerAccount(): Promise<Account> {
   const credentials = {
     email: `e2e-${Date.now()}-${randomBytes(4).toString("hex")}@example.test`,
@@ -237,9 +231,8 @@ type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 type WorkerFixtures = {
   // LOCAL LAB ONLY: before the first test of every worker (one per project, and a new one after a failed test), the
   // gateway's register rate limit keys (svp:gw:rl:register:*) in Redis db 10 on 127.0.0.1:6379 (on k3d: Valkey db 10
-  // of cluster svp, through kubectl, as SVP_STACK=k3d tells lib.sh) are deleted with SCAN + DEL, by
-  // reset_register_limit of deploy/compose/lib.sh as e2e/seed.sh and `make smoke` do; the limit itself is not raised.
-  // Never point the e2e run at a shared stack.
+  // of cluster svp, through kubectl) are deleted with SCAN + DEL by reset_register_limit of deploy/compose/lib.sh; the
+  // limit itself is not raised. Never point the e2e run at a shared stack.
   registerLimitReset: void;
   // A user of this worker, logged in once through the login page; its cookie is kept for the tests of `authedTest`.
   sessionAccount: Account & { storageState: StorageState };

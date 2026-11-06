@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# `make measure-upload`, run from the repository root on the backend's compose stack (`make up` there): one upload of a
-# ~100 MB video from Chromium through /upload (e2e/measure-upload.e2e.ts), then one summary: the time from the XHR's
-# start to its load, the throughput, the CPU of the page's main thread while the file went up, and the time to READY;
-# printed and written to test-results/measure-upload-<UTC time>.json (gitignored).
-#
+# `make measure-upload`, from the repository root on the backend's compose stack (`make up` there): one upload of a
+# ~100 MB video from Chromium through /upload (e2e/measure-upload.e2e.ts), then a summary printed and written to
+# test-results/measure-upload-<UTC time>.json (gitignored).
+# Design notes: README.md.
+
 # The video is real and transcodes: 160 s of 1080p test pattern with noise at about 5 Mbit/s, so ~100 MB while staying
 # under the 180 s the web and media-worker accept. It is made in a temporary folder, removed at the end.
-#
+
 # LOCAL LAB ONLY, like the e2e run (e2e/seed.sh resets the gateway's register rate limit in Redis db 10).
 set -euo pipefail
 

@@ -162,7 +162,7 @@ export const loadVideoPage = cache((videoId: string, options: { timeoutMs?: numb
 const hlsType = "application/vnd.apple.mpegurl";
 
 // Tags of the page. Values are plain text: Next writes them as attributes of <meta>, escaped by
-// React, so a title holding HTML or quotes stays text (WEB-1, WEB-18). A media URL off MEDIA_ORIGIN leaves its tag out.
+// React, so a title holding HTML or quotes stays text. A media URL off MEDIA_ORIGIN leaves its tag out.
 export function videoMetadata(
   video: FeedItem,
   env: Pick<ServerEnv, "appOrigin" | "mediaOrigin">,

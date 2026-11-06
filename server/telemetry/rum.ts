@@ -5,11 +5,10 @@ import type { WindowBudget } from "../sentry/limiter";
 import { isVideoId } from "../video-page";
 import { vitalNames, vitals, type RouteTemplate, type VitalsRecorder } from "./vitals";
 
-// POST /rum: the web vitals of one page load, sent by the browser as a beacon.
-// proxy.ts has already checked it comes from the
-// app's own pages (CSRF). Anyone who can open a page can still send numbers here, so what a beacon can do is bounded:
-// a closed set of label values (no new series), a ceiling on each value, a small body and a rate per process. Nothing
-// about the sender is kept: no user id, session, full URL or User-Agent, and nothing is logged.
+// POST /rum: the web vitals of one page load, sent by the browser as a beacon. proxy.ts has already checked it comes
+// from the app's own pages (CSRF). Anyone who can open a page can still send numbers here, so what a beacon can do is
+// bounded: a closed set of label values (no new series), a ceiling on each value, a small body and a rate per process.
+// Nothing about the sender is kept: no user id, session, full URL or User-Agent, and nothing is logged.
 
 export const maxBeaconBytes = 4 * 1024;
 
