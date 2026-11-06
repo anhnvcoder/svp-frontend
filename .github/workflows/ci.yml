@@ -1,33 +1,18 @@
-# Checks of every pull request and of every push to main: lint, format, typecheck, unit tests, production build and
-# bundle budgets (make check), gen/api.d.ts as generated from the released API contract (make generate-check), the
-# vulnerability gate of the lockfile (make lockfile-scan), the rules of .trivyignore.yaml and .grype.yaml,
-# actionlint, the secret scan of the whole git history, the security lint of the workflows
-# (zizmor), the Markdown lint and internal links (make docs-check) and, on pull requests, the review of the dependencies
-# they change. Job ci-ok is the only check the ruleset of main requires from this workflow, so the other jobs can be
-# renamed or added without touching it. Job stack
-# runs this pull request's web client end to end against the backend staging runs, outside ci-ok, so a red run (a
-# flaky run on a shared runner, a Lighthouse threshold) never blocks a merge.
-#
-# The scripts shared with the backend repository (scan gate) and the versions of its pinned tools are
-# read from .backend/, the backend checked out at the commit of .backend-commit (make backend-checkout), the one place
-# this repository pins it.
-#
-# The repository is public and a pull request from a fork runs this workflow with the fork's code, so:
-# - no pull_request_target and no workflow_run: a pull request never runs with a write token or with secrets;
-# - every job that runs code of the repository has contents: read and nothing else. The only job with a write
-#   permission (sarif, security-events: write) runs on main outside pull requests and executes nothing of the
-#   repository: it uploads the SARIF reports the other jobs left as artifacts;
-# - every action is GitHub's own and pinned to a full commit SHA: a tag moved to other code changes nothing here;
-# - checkout never leaves the token in .git/config (persist-credentials: false);
-# - values an outsider controls (branch names, titles) never go into a script through ${{ }}: only through env.
+# Checks of every pull request and push to main; ci-ok is the only check the ruleset requires.
+# Scripts and tool versions shared with the backend come from .backend/, checked out at .backend-commit, the only pin.
+# Public repository: a fork's pull request runs this file with its own code, so:
+# - no pull_request_target or workflow_run: no write token or secret reaches a pull request;
+# - jobs that run repository code get contents: read only; the one write job (sarif) runs on main and runs none of it;
+# - actions pinned to a full commit SHA; checkout with persist-credentials: false;
+# - untrusted values (branch names, titles) reach scripts through env:, never ${{ }}.
+# Design notes: README.md.
 name: ci
 
 on:
   pull_request:
   push:
     branches: [main]
-  # Run by hand on any branch. No paths filter on any trigger: a required check whose workflow does not run is never
-  # reported and leaves the pull request waiting.
+  # No paths filter on any trigger: a required check whose workflow never runs leaves the pull request waiting.
   workflow_dispatch:
 
 permissions: {}
@@ -40,14 +25,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Which areas a pull request changes, so a job whose area it leaves alone skips and ci-ok accepts that skip. Each
-  # output is true or false:
-  #   code       any file but documentation (Markdown, docs/, LICENSE): jobs check, config;
-  #   workflows  .github/: job zizmor;
-  #   stack      anything the web client runs or is tested from: every file but documentation and .github/.
-  # gitleaks, docs and dependency-review always run. A change of the Makefile, of .backend-commit (the backend's
-  # scripts and pinned tools) or of this workflow, a push and a dispatch turn every output true: when in doubt, run.
-  # The list comes from GitHub's API for the pull request, not from git, so no history is fetched.
+  # Which areas a pull request changes, so a job whose area it leaves alone skips and ci-ok accepts that skip.
+  # gitleaks, docs and dependency-review always run. A change of the Makefile, .backend-commit or this workflow, a push
+  # and a dispatch turn every output true: when in doubt, run. The list comes from GitHub's API: no history is fetched.
   changes:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -97,8 +77,6 @@ jobs:
             fi
           } | tee -a "$GITHUB_OUTPUT"
 
-  # Install exactly as pnpm-lock.yaml pins it, make check, gen/api.d.ts as committed, and the vulnerability gate of
-  # every npm package the lockfile pins.
   check:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -121,30 +99,28 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The Node major of .nvmrc, the one the dev machine's nvm and the Dockerfile use. No cache input: its pnpm cache
-      # needs pnpm on PATH before Node is there, so the store is cached below instead.
+      # No cache input: its pnpm cache needs pnpm on PATH before Node is there, so the store is cached below instead.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-      # pnpm the same way as on the dev machine and in the Dockerfile: Node 25 and later ship no Corepack, and the
-      # repository allows no third-party action (pnpm/action-setup). The exact version is read from the packageManager
-      # field of package.json, the one place it is pinned (Renovate updates it).
+      # Node 25 and later ship no Corepack and the repository allows no third-party action (pnpm/action-setup), so pnpm
+      # is installed with npm, at the version of packageManager in package.json (the one pin, Renovate updates it).
       - id: pnpm
         name: Install pnpm
         run: &install-pnpm |
           version=$(node -p 'require("./package.json").packageManager.split("@")[1]')
           npm install -g "pnpm@$version"
           echo "store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-      # The pnpm store, keyed on the lockfile. What protects this cache is its scope: a pull request saves into its own
-      # scope only, never main's, so it cannot plant a store that main later restores. pnpm checks the integrity hash
-      # of pnpm-lock.yaml only when it downloads a tarball, not for packages already in a restored store.
+      # The pnpm store, keyed on the lockfile. A pull request saves into its own scope only, never main's, so it cannot
+      # plant a store that main later restores. pnpm checks the integrity hash of pnpm-lock.yaml only when it downloads
+      # a tarball, not for packages already in a restored store.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.pnpm.outputs.store }}
           key: pnpm-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
-      # The trivy DB of the lockfile scan below, one cache entry per day, restored before any step that can fail;
-      # trivy still downloads a newer DB when the cached one is stale. A pull request's cache stays in its own ref and
-      # never replaces main's.
+      # The trivy DB of the lockfile scan below, one cache entry per day, restored before any step that can fail; trivy
+      # still downloads a newer DB when the cached one is stale. A pull request's cache stays in its own ref and never
+      # replaces main's.
       - id: day
         run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -154,12 +130,10 @@ jobs:
           restore-keys: trivy-db-
       - run: make install
       - run: make check
-      # Checks the digest, version and signature of the released contract, anonymously over the network, before it
-      # compares; writes nothing under gen/.
+      # Verifies the released contract (digest, version, signature) anonymously, then compares; writes nothing in gen/.
       - run: make generate-check
-      # Any CRITICAL in pnpm-lock.yaml (development dependencies included) fails the job; HIGH goes only to the
-      # SARIF. It runs even when a step above failed, so a pull request always shows
-      # the gate's result. The SARIF is written before the gate decides; job sarif uploads it on main.
+      # Any CRITICAL in pnpm-lock.yaml (development dependencies included) fails the job; HIGH goes only to the SARIF.
+      # Runs even when a step above failed, so a pull request always shows the gate's result.
       - name: make lockfile-scan
         if: ${{ !cancelled() }}
         env:
@@ -187,7 +161,6 @@ jobs:
           path: ${{ runner.temp }}/trivy-lockfile.sarif
           if-no-files-found: ignore
 
-  # What no test covers: the rules of .trivyignore.yaml and .grype.yaml, and the workflows themselves.
   config:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -200,10 +173,8 @@ jobs:
           persist-credentials: false
       # The backend at .backend-commit, anonymously over HTTPS: no token, no secret.
       - run: make backend-checkout
-      # The only place an expired entry fails (grype reads no date, so its rule would go on covering the match), and a
-      # broken entry or rule merged into main would stop the image gate and the daily rescan of the web release. The
-      # rules are conftest policies of the backend, run with the conftest and yq images its Makefile pins by digest,
-      # without network; no token.
+      # The only place an expired entry fails (grype reads no date, so its rule would go on covering the match); a
+      # broken entry or rule merged into main would stop the image gate and the daily rescan of the web release.
       - name: Rules of .trivyignore.yaml and .grype.yaml
         run: SVP_CODE_ROOT="$PWD" .backend/deploy/ci/scan-gate.sh --check-ignorefile
       # Go only to build the two pinned tools below, at the Go of the backend's go.mod: no second pin.
@@ -211,8 +182,7 @@ jobs:
         with:
           go-version-file: .backend/go.mod
           cache: false
-      # gitleaks and actionlint (make tools) at the versions the backend's Makefile pins, rebuilt only when the list of
-      # tools (this Makefile) or their versions (the backend's) change.
+      # gitleaks and actionlint at the versions the backend's Makefile pins; rebuilt only when either Makefile changes.
       - id: tools
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -226,9 +196,8 @@ jobs:
         run: '"$(go env GOPATH)/bin/actionlint"'
 
   # gitleaks over the whole history of every ref (no --log-opts: setting it drops gitleaks's default --full-history
-  # --all). Any finding fails the job. --redact keeps the secret out of the log and the report, which anyone can read on
-  # a public repository. A false positive (a test fixture) is allowed only in .gitleaks.toml, narrowly, with the reason
-  # beside it.
+  # --all). --redact keeps the secret out of the log and the report, which anyone can read on a public repository. A
+  # false positive (a test fixture) is allowed only in .gitleaks.toml, narrowly, with the reason beside it.
   gitleaks:
     runs-on: ubuntu-24.04
     permissions:
@@ -269,11 +238,9 @@ jobs:
           path: ${{ runner.temp }}/gitleaks.sarif
           if-no-files-found: ignore
 
-  # Security lint of every workflow with the pinned zizmor (make zizmor, ADR-0041 (g)): any finding not left out in
-  # .github/zizmor.yml fails the job, shown as annotations on the lines. GITHUB_TOKEN, read-only here, turns on the
-  # online audits (impostor commits, actions with known vulnerabilities); zizmor only reads public data with it. No
-  # condition: ci-ok is red when this job is red or skipped. The SARIF report beside it is for the code scanning
-  # upload of job sarif and never fails.
+  # Security lint of every workflow with the pinned zizmor (make zizmor): any finding not left out in .github/zizmor.yml
+  # fails the job. GITHUB_TOKEN, read-only here, turns on the online audits (impostor commits, actions with known
+  # vulnerabilities); zizmor only reads public data with it.
   zizmor:
     needs: changes
     if: needs.changes.outputs.workflows == 'true'
@@ -302,11 +269,10 @@ jobs:
           path: ${{ runner.temp }}/zizmor.sarif
           if-no-files-found: ignore
 
-  # The dependencies a pull request adds or changes (package.json and pnpm-lock.yaml, and every other manifest GitHub's
-  # dependency graph reads), against the GitHub Advisory Database: a known vulnerability of severity high or critical
-  # fails the job before trivy and grype see it in the lockfile or the image (ADR-0041 (k)). Licenses only show in the
-  # job summary. Pull requests only: the action compares the pull request's base and head, so on any other event the
-  # job is skipped, and ci-ok takes that skip for this job alone.
+  # The dependencies a pull request adds or changes, against the GitHub Advisory Database: a known vulnerability of
+  # severity high or critical fails the job before trivy and grype see it in the lockfile or the image. Licenses only
+  # show in the job summary. Pull requests only: the action compares the pull request's base and head, so on any other
+  # event the job is skipped, and ci-ok takes that skip for this job alone.
   dependency-review:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
@@ -318,8 +284,6 @@ jobs:
         with:
           fail-on-severity: high
 
-  # Style of every Markdown file and its relative links and heading anchors (make docs-check): markdownlint-cli2 and
-  # lychee --offline from images pinned by digest in the Makefile, run without network.
   docs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -331,17 +295,10 @@ jobs:
           persist-credentials: false
       - run: make docs-check
 
-  # This pull request's web client end to end against the backend staging runs: the backend's compose stack at the
-  # commit of envs/stg/charts.yaml on main of svp-gitops, its six services and their migrations from the releases of
-  # envs/stg/images/ there (pulled by digest, no Go build), the web image built from this checkout; then the backend's
-  # smoke run, the end-to-end tests on Chromium and WebKit, and Lighthouse. The three repositories sit side by side as
-  # in the lab's workspace (frontend/, backend/, gitops/), and each script is told the other two through SVP_*_DIR.
-  # Outside ci-ok, which does not need it, so a red stack (a flaky end-to-end test on a shared runner, a Lighthouse
-  # threshold, a backend release staging has not settled) never blocks a merge; whoever reads the pull request sees its
-  # result under this name. It builds and runs the pull request's code like the other jobs, with contents: read and no secret: the
-  # backend's make env writes a .env of fresh random secrets that lives on this runner until the job ends, never printed
-  # or uploaded. The LOCAL LAB ONLY resets of smoke, the end-to-end seed and Lighthouse (they delete the gateway's
-  # register rate limit keys in Redis db 10) touch only the Redis service container below, which belongs to this run.
+  # This pull request's web client end to end against the backend staging runs, the three repositories side by side as
+  # in the lab's workspace. Outside ci-ok: a red stack (a flaky end-to-end test, a Lighthouse threshold, a backend
+  # release staging has not settled) never blocks a merge. It runs the pull request's code with contents: read and no
+  # secret; its .env of random secrets is never printed or uploaded, and its Redis resets touch only the service below.
   stack:
     name: stack (end-to-end on the backend of staging, outside ci-ok)
     needs: changes
@@ -408,8 +365,8 @@ jobs:
           ref: ${{ steps.stg.outputs.revision }}
           path: backend
           persist-credentials: false
-      # A backend older than the stack mode that runs the releases of staging (make up IMAGES=stg) would ignore IMAGES
-      # and build its six services from source: not the backend staging runs. Stopped here, before anything is built.
+      # An older backend would ignore IMAGES and build its six services from source, not what staging runs: stopped
+      # here, before anything is built.
       - name: The backend there runs the releases of staging
         run: make -C frontend stg-check
       # make env runs go run ./tools/jwtkey for the JWT key pair, at the Go of that backend's go.mod.
@@ -421,7 +378,6 @@ jobs:
       # above are published on 172.17.0.1: if the two differ, every compose service fails to reach Postgres and Redis
       # with a timeout far from its cause. Said here, before anything is pulled or built.
       - run: make -C backend ci-bridge-check
-      # Node and pnpm as in job check: the end-to-end tests, Lighthouse and the Playwright browsers run from frontend/.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: frontend/.nvmrc
@@ -433,21 +389,15 @@ jobs:
         with:
           path: ${{ steps.pnpm.outputs.store }}
           key: pnpm-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-      # What the scripts run on the runner, from Ubuntu's archive (no third-party action): psql of the Postgres
-      # bootstrap (16 here; its SQL needs 15 or later), redis-cli of the rate limit reset, ffmpeg for the test videos of
-      # smoke, the e2e seed and Lighthouse, jq everywhere. curl and openssl come with the image.
+      # From Ubuntu's archive, no third-party action. psql is 16 here; the Postgres bootstrap SQL needs 15 or later.
       - name: Install the tools of the scripts
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends postgresql-client redis-tools ffmpeg jq
       - run: make -C backend env
-      # The six services and their migrations from envs/stg/images/ of gitops/ (pulled for this runner's architecture
-      # before anything starts), the web built from frontend/ with its own Dockerfile.
       - run: make -C backend up IMAGES=stg WEB_FROM=clone
       - run: make -C backend smoke
       - run: make -C frontend install
-      # The browsers of playwright.config.ts at the version pnpm-lock.yaml pins, with their system libraries (apt,
-      # through sudo).
       - name: Install the Playwright browsers
         working-directory: frontend
         run: pnpm exec playwright install --with-deps chromium webkit
@@ -465,16 +415,14 @@ jobs:
           fi
           echo "apparmor: kernel.apparmor_restrict_unprivileged_userns" \
             "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)"
-      # Three runs per page, each threshold read on the median: a threshold missed turns the job red (not ci-ok).
       - id: lighthouse
         run: make -C frontend lighthouse
       - name: Container state
         if: failure()
         run: make -C backend ps
-      # The reports lighthouse/run.sh wrote at the top of its folder after replacing the session cookie in them (it
-      # deletes them when a cookie value is still found). Its .lighthouseci/ subfolder, with the results before that
-      # replacement, is matched by neither pattern and is a hidden folder, which upload-artifact leaves out. Skipped
-      # when the step was cancelled mid-run or never ran.
+      # The reports lighthouse/run.sh wrote after replacing the session cookie in them (it deletes them when a cookie
+      # value is still found). Its hidden .lighthouseci/ folder, with the results before that replacement, is matched by
+      # neither pattern. Skipped when the step was cancelled mid-run or never ran.
       - name: Keep the Lighthouse reports
         if: always() && (steps.lighthouse.outcome == 'success' || steps.lighthouse.outcome == 'failure')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -491,10 +439,8 @@ jobs:
 
   # The code scanning upload, the one job with a write permission. Only on main outside pull requests: a pull request
   # (from a branch of the repository or from a fork) runs its own code before anyone has read it, so it never gets
-  # security-events: write; its findings stay in the artifacts and job summaries. This job checks the code out only so
-  # upload-sarif can read the lines of each finding and fingerprint it (an alert then survives a line shift with its
-  # history and dismissal): it runs nothing of the repository. It is a report, not a check: ci-ok does not need it,
-  # and a failed upload still turns the run red.
+  # security-events: write. It checks the code out only so upload-sarif can fingerprint each finding, and runs nothing
+  # of the repository. A report, not a check: not in ci-ok, but a failed upload still turns the run red.
   sarif:
     needs: [check, gitleaks, zizmor]
     if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -528,11 +474,10 @@ jobs:
           sarif_file: sarif/sarif-zizmor/zizmor.sarif
           category: zizmor
 
-  # The required check. It runs whatever happened before it (always()) and fails unless every check job succeeded:
-  # GitHub counts a skipped required check as passed, and a job that failed or was cancelled does not fail the jobs
-  # that need it by itself. Two kinds of skip are part of a run: dependency-review outside pull requests, and a job
-  # whose area job changes found untouched. Any other skip can only mean a wrong if: and is red too. No condition may
-  # ever skip ci-ok itself.
+  # The required check: always(), and no condition may ever skip it (GitHub counts a skipped required check as passed).
+  # Red unless every check job succeeded: a job that failed or was cancelled does not fail the jobs that need it by
+  # itself. Two kinds of skip are part of a run: dependency-review outside pull requests, and a job whose area job
+  # changes found untouched. Any other skip can only mean a wrong if: and is red too.
   ci-ok:
     needs: [changes, check, config, gitleaks, zizmor, dependency-review, docs]
     if: always()
@@ -545,8 +490,7 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$NEEDS"
-          # skip_ok: the skips that are part of a run: dependency-review outside pull requests, and a job whose area
-          # job changes found untouched (changes succeeded and set that job's output to false).
+          # skip_ok: dependency-review outside pull requests, and a job whose area job changes found untouched.
           jq -e --arg event "$EVENT" '
             .changes as $changes
             | {"check": "code", "config": "code", "zizmor": "workflows"} as $area
