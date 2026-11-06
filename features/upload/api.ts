@@ -53,7 +53,7 @@ function client() {
 }
 
 // Creates a video in UPLOADING and returns its upload form. `idempotencyKey` (a quoted UUID) names one video: a retry
-// with the same key and input answers with the same video and opens no other of the user's 3 upload slots (ADR-0043).
+// with the same key and input answers with the same video and opens no other of the user's 3 upload slots.
 // A network failure rejects with the fetch error.
 export async function initUpload(
   input: { title: string; sizeBytes: number; contentType: string },

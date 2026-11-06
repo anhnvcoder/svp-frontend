@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/server/current-user";
 export type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 // Body of /login and /register. A visitor who is already logged in goes to the home page; `next` only fills the
-// hidden field, the action checks it (WEB-4), so the page never redirects to it.
+// hidden field, the action checks it, so the page never redirects to it.
 export async function AuthPage({
   mode,
   action,

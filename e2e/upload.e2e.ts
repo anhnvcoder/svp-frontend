@@ -13,11 +13,12 @@ import {
 } from "./fixtures";
 import { stack } from "./stack";
 
-// Upload from the browser: a 60 s 1080p clip goes from
-// /upload to the storage with a presigned POST, the worker transcodes it to READY, and the video plays on its share
-// page. Each test has a user of its own: a user has at most 3 open uploads in 15 minutes, and the interrupted upload
-// may open more than one. Tagged @publishes: a READY video leads Explore, so these run after the other tests of both
-// browsers (playwright.config.ts).
+// Upload from the browser: a 60 s 1080p clip goes from /upload to the storage with a presigned POST, the worker
+// transcodes it to READY, and the video plays on its share page. Each test has a user of its own: a user has at most 3
+// open uploads in 15 minutes, and the interrupted upload may open more than one.
+
+// Tagged @publishes: a READY video leads Explore, so these run after the other tests of both browsers
+// (playwright.config.ts).
 
 // The worker transcodes a 60 s 1080p clip in about 50 s (make measure-ready); the rest is margin for a queue.
 const readyTimeout = 240_000;
@@ -94,6 +95,7 @@ test(
 // Breaks the first POST of the file to the storage and takes the browser offline in the same step, as a lost
 // connection does; later POSTs go through. Playwright cannot break a request already on its way in either browser,
 // and context.setOffline() only stops new requests (an upload in flight still finishes), so:
+
 // - Chromium: the DevTools Fetch domain pauses the POST once the storage has answered, after the whole body went out,
 //   and fails it with InternetDisconnected: the page saw the upload's progress, then a network error.
 // - WebKit, which has no such hook: page.route aborts the POST with internetdisconnected before any byte leaves.
@@ -142,7 +144,7 @@ test(
     const screen = await recordUploadScreen(page);
     const title = await postClip(page, clip);
 
-    // M29, the retry with its attempt count, then the wait for a connection (navigator.onLine is false).
+    // The retry with its attempt count, then the wait for a connection (navigator.onLine is false).
     // Scoped: Next's route announcer is an alert too.
     await expect(page.getByRole("region", { name: "Upload a video" }).getByRole("alert")).toContainText(
       "Connection lost",

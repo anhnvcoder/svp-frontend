@@ -4,7 +4,7 @@ import { focusRing } from "@/components/ui/styles";
 import { cn } from "@/lib/cn";
 
 // The video title in two lines; a tap shows all of it. The title is the uploader's text and is rendered as React text
-// only, never as HTML (WEB-1).
+// only, never as HTML.
 export function FeedTitle({ title }: { title: string }) {
   const t = useTranslations("feed");
   const [expanded, setExpanded] = useState(false);

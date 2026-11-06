@@ -3,10 +3,10 @@ import type { Page } from "@playwright/test";
 import { authedTest, expect, feedItem, generatedHandle, playingVideo, test } from "./fixtures";
 import { seed } from "./seed";
 
-// axe on the screens of the web client: no violation of WCAG 2.2 level A or AA, whatever its impact (axe's rules
-// tagged for WCAG 2.0, 2.1 and 2.2 A and AA; its best-practice rules outside those tags are not checked here).
-// The cspViolations fixture fails each test on any CSP violation as well, so these pages are also the
-// "no CSP violation" check of login, register, the feed while a video plays, upload, the profiles and the share page.
+// axe on the screens of the web client: no violation of WCAG 2.2 level A or AA, whatever its impact (axe's
+// rules tagged for WCAG 2.0, 2.1 and 2.2 A and AA; its best-practice rules outside those tags are not checked here).
+// The cspViolations fixture fails each test on any CSP violation as well, so these pages are also the "no CSP
+// violation" check.
 
 const wcag22aa = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"];
 

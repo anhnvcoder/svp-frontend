@@ -107,7 +107,6 @@ function feedWithLike(feed: InfiniteData<FeedPage> | undefined, videoId: string,
 }
 
 // Writes the state the server confirmed into every feed of the cache that holds the video.
-//
 // A next page still loading lands with the feed's earlier pages as they were when it was asked for (only the new page
 // is read), and would put back the state stored meanwhile: such a feed gets the state again once that page has landed.
 // A fetch started after this one reads the cache as stored, so it needs nothing.
@@ -157,7 +156,7 @@ function rereadPagesInFlight(client: QueryClient) {
 // request at a time, so taps in quick succession never race each other and the end state is always the last tap's.
 // A failed request puts the button back to the server's state and calls `onError` with the state of the last tap and
 // a function that asks for that state again.
-//
+
 // The taps live in the tab's query client rather than in the screen: while one is pending, every screen of the video
 // shows it, also a screen mounted later (Back and Forward replay a page read before the tap). Once its request has
 // ended, the server's answer is stored into the cached feeds and the screen that showed the tap keeps it; stats read

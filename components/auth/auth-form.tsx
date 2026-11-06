@@ -27,7 +27,7 @@ type AuthFormProps = {
   mode: AuthMode;
   // loginAction or registerAction of server/auth-actions.ts.
   action: (previous: AuthState, form: FormData) => Promise<AuthState>;
-  // The `next` query of the page, passed on untouched: the action checks it (WEB-4).
+  // The `next` query of the page, passed on untouched: the action checks it.
   next?: string;
 };
 

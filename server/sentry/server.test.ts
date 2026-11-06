@@ -190,7 +190,6 @@ describe("server error reporting", () => {
     const response = await handleMonitoringReport(request, env, deps);
     expect(response.status).toBe(202);
     expect(performance.now() - started).toBeLessThan(500);
-    // The SDK tried to send it.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(sent).toHaveLength(1);
   });

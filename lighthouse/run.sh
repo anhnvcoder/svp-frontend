@@ -1,23 +1,19 @@
 #!/usr/bin/env bash
-# `make lighthouse`, run from the repository root on the backend's compose stack (`make up` there): three Lighthouse runs
-# (@lhci/cli) of each of two pages in Playwright's Chromium, with Lighthouse's default mobile settings (an emulated
-# phone, simulated slow 4G and a 4x CPU slowdown; Lighthouse has no preset named mobile, its desktop preset is the other
-# one):
-# - the feed, /, logged in: a fresh user, registered at the gateway, logs in through the web's login page
-#   (lighthouse/session.ts) and Lighthouse sends that session cookie with every request (extraHeaders);
-# - /v/{id} of a READY video, logged out: the newest video of explore, or, when explore is empty, a 4 s test clip the
-#   user publishes first.
-# Then a table of LCP, CLS, TBT and the LCP element of each run, the console errors, and `lhci assert` against the
-# thresholds of lighthouse/lighthouserc.json, each checked on the median of the three runs of a page: LCP 3500 ms,
-# CLS 0.1, TBT 800 ms, accessibility score 0.9. LCP and TBT are regression budgets a little above what the shared CI
-# runner measures today (LCP 2.6-3.0 s, TBT 0.4-0.7 s on mobile); the Core Web Vitals targets are 2500 ms and 200 ms,
-# and the budgets come down as the pages get faster. The reports, HTML and JSON per run and manifest.json, go to
-# test-results/lighthouse/ (gitignored); nothing is uploaded anywhere. Exits with the status of lhci assert.
-#
+# `make lighthouse`, from the repository root on the backend's compose stack (`make up` there): three Lighthouse runs
+# (@lhci/cli) of the feed, /, logged in, and of /v/{id} of a READY video, logged out, in Playwright's Chromium with
+# Lighthouse's default mobile settings; then `lhci assert` on the median of each page (lighthouse/lighthouserc.json).
+# Reports go to test-results/lighthouse/ (gitignored). Exits with the status of lhci assert.
+
+# Design notes: README.md.
+
+# LCP and TBT are regression budgets a little above what the shared CI runner measures today (LCP 2.6-3.0 s, TBT
+# 0.4-0.7 s on mobile); the Core Web Vitals targets are 2500 ms and 200 ms, and the budgets come down as the pages get
+# faster.
+
 # The cookie stays out of the output and the reports: Lighthouse reads it from a private file, the copy every result
 # records (configSettings.extraHeaders) is replaced before the reports are written, the run fails when a cookie value
 # is still found in a result or a report, and the session is logged out at exit so the cookie stops working.
-#
+
 # LOCAL LAB ONLY: sourcing deploy/compose/lib.sh of the backend deletes the gateway's register rate limit keys
 # (svp:gw:rl:register:*) in Redis db 10 on 127.0.0.1:6379 with SCAN + DEL, as e2e/seed.sh and the backend's
 # `make smoke` do. Never point it at a shared stack.

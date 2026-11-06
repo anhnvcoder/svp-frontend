@@ -14,7 +14,6 @@ function nextKey(browserName: string): string {
   return browserName === "webkit" && process.platform === "darwin" ? "Alt+Tab" : "Tab";
 }
 
-// Presses the next-control key until `target` has the focus, at most `limit` times; fails when it never gets it.
 async function tabTo(page: Page, browserName: string, target: Locator, limit = 40): Promise<void> {
   const key = nextKey(browserName);
   for (let presses = 0; presses < limit; presses++) {
@@ -85,7 +84,6 @@ authedTest(
     await tabTo(page, browserName, share);
     await expectFocusVisible(share);
 
-    // Arrow Down moves to the next video, which plays on screen, and Arrow Up back to the first.
     await page.keyboard.press("ArrowDown");
     const second = feedItem(page, 1);
     await expect(playingVideo(second)).toHaveCount(1);

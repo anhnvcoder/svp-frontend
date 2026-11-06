@@ -4,7 +4,7 @@
 export const seedEnv = "SVP_E2E_SEED";
 
 export type Seed = {
-  // The newest READY video, first in explore, with an HTML title (WEB-1); its author has no other video.
+  // The newest READY video, first in explore, with an HTML title; its author has no other video.
   xss: { video_id: string; author_id: string; title: string };
   explore_ready: number;
 };

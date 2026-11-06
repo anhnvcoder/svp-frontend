@@ -3,13 +3,13 @@ import { loadHls, type HlsClass, type HlsConfig, type HlsInstance } from "./hls-
 import { isMediaUrl } from "./media-url";
 
 // A fixed pool of three <video> elements, each with at most one hls.js instance, for the previous, current and next
-// item of the feed. Moving through the feed changes a slot's source and moves
-// its element into the item's host; it never creates or drops a <video>: WebKit grows memory when media elements come
-// and go (WebKit bug 216820), and each live hls.js instance holds a MediaSource and buffers.
-//
+// item of the feed. Moving through the feed changes a slot's source and moves its element into the item's host; it
+// never creates or drops a <video>: WebKit grows memory when media elements come and go (WebKit bug 216820), and each
+// live hls.js instance holds a MediaSource and buffers.
+
 // Three consecutive indexes have three different remainders modulo 3, so item i always uses slot i % 3 and a slot is
 // never wanted by two items of the window at once.
-//
+
 // The current item loads first: a neighbour gets its source only once the current item's video can play (or failed),
 // so its playlist and segments never compete with the current item's first segment and poster on a slow link.
 
@@ -235,10 +235,9 @@ export class PlayerPool {
     slot.source = source;
     slot.host = host;
     video.muted = this.muted;
-    // No poster: the item's own <img>, under the host, shows the thumbnail until the first frame, and a <video> without
-    // a frame paints nothing over it. A poster here would paint the same image again, on top, and the <img> can paint
-    // late, in the first frame after the long task of hydration, the very task that moves this <video> in: both then
-    // paint in the same frame at the same size, and the browser reports the <video> as the page's largest paint, an
+    // No poster: the item's own <img>, under the host, shows the thumbnail until the first frame. A poster here would
+    // paint the same image again, on top; the <img> can paint late, after the long task of hydration that moves this
+    // <video> in, so both paint in the same frame and the browser reports the <video> as the page's largest paint, an
     // element that exists only once the page's scripts have run.
     host.append(video);
     this.callbacks.onState(source.index, "loading");
@@ -317,11 +316,10 @@ export class PlayerPool {
     if (slot.video.dataset.state === "error" || !video.paused) {
       return;
     }
-    // With hls.js, play only once the element can play (canplay calls this again). Playing before any data makes the
-    // element wait at 0 s while the first segment starts a little later (0.07 s for the media worker's MPEG-TS), so
-    // hls.js seeks over that gap during playback; WebKit on Linux (GStreamer) under load then never ends the seek and the
-    // video stays buffering with its data in hand. hls.js loads segments without play(); the browser's own HLS player
-    // (no MediaSource) does not, so it is told to play at once.
+    // With hls.js, play only once the element can play (canplay calls this again). Playing before any data makes
+    // hls.js seek over the gap to the first segment (0.07 s for the media worker's MPEG-TS); WebKit on Linux
+    // (GStreamer) under load then never ends that seek. hls.js loads segments without play(); the browser's own HLS
+    // player (no MediaSource) does not, so it is told to play at once.
     if (slot.hls !== null && video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
       return;
     }

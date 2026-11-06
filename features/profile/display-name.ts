@@ -3,6 +3,7 @@ import * as z from "zod/mini";
 // The display name rules of user-service and the state
 // of the form that changes it (useActionState with server/profile-actions.ts). Nothing here is secret: the form checks
 // in the browser with the same schema the action checks on the server. zod/mini keeps it small in the page's bundle.
+// Design notes: docs/architecture.md.
 
 // Why the name was refused, as codes the form translates. INVALID_DISPLAY_NAME is user-service refusing a name this
 // check let through.
@@ -31,17 +32,10 @@ export const initialDisplayNameState: DisplayNameState = {
 
 export const maxDisplayNameLength = 50;
 
-// The rules of user-service, character by character (normalizeDisplayName in
-// services/user-service/internal/server/profile.go); user-service still decides, this only answers early. Refused:
-//   - control characters (Cc), which break lines in the UI, and the line and paragraph separators U+2028, U+2029;
-//   - format characters (Cf): the bidi controls that would reorder the @handle and time shown after the name (WEB-18),
-//     and invisible ones such as U+200B, U+2060, U+FEFF, the soft hyphen and the tag characters;
-//   - every other default-ignorable code point (the Hangul fillers U+115F, U+1160, U+3164, U+FFA0, the combining
-//     grapheme joiner U+034F) and the blank Braille pattern U+2800: they render as nothing, so a name that looks empty
-//     would pass the trim;
-//   - a lone surrogate, which is not text at all (user-service refuses invalid UTF-8).
-// The tables are the browser's Unicode version, user-service's are Go's: a code point new in one of them may be judged
-// apart, and then user-service's answer (INVALID_DISPLAY_NAME) is the one shown.
+// The rules of user-service (normalizeDisplayName in services/user-service/internal/server/profile.go); it still
+// decides, this only answers early. Refused: control, format (bidi controls would reorder the @handle and time shown
+// after the name) and other invisible characters (a name that looks empty would pass the trim), and a lone surrogate.
+// The tables are the browser's Unicode version, user-service's are Go's: a code point new in one may be judged apart.
 const forbidden = /^[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\p{Cs}\u2028\u2029\u2800]$/u;
 // The invisible characters emoji need: the zero width joiner builds sequences such as a family, the variation
 // selectors pick the emoji form of a symbol. They are allowed although they are Cf or default-ignorable, but they are

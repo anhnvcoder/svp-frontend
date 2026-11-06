@@ -6,7 +6,7 @@ import { useRef, useState, type DragEvent } from "react";
 import { Button } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
-// Step 1 (M20, D05, D06): a button that opens the file picker and, on a wide screen, a zone a file can be dropped on.
+// Step 1: a button that opens the file picker and, on a wide screen, a zone a file can be dropped on.
 // Only the first file of a drop or a pick is taken.
 
 type DropZoneProps = {

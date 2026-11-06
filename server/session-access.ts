@@ -2,20 +2,20 @@ import "server-only";
 import type { AuthGateway } from "./gateway";
 import { hashSid, type Session, type SessionStore } from "./session";
 
-// Hands out a usable access token for a session, refreshing it shortly before it expires.
-//
-// A refresh token works once: presenting it a second time revokes the whole family and logs the user out. So at most
-// one refresh per session may be in flight anywhere: requests of one process share one promise, and processes
-// (replicas) share a Redis lease; whoever does not hold the lease waits for the new session instead of refreshing.
+// Hands out a usable access token for a session, refreshing it shortly before it expires. A refresh token works once:
+// presenting it again revokes the whole family and logs the user out. So at most one refresh per session may be in
+// flight anywhere: requests of one process share one promise, replicas share a Redis lease, and whoever does not hold
+// the lease waits for the new session instead of refreshing.
+
 // The holder's call to the gateway, answer included, is cut off a margin before the lease runs out: a call still
 // waiting past it would overlap with the call of the next holder, which presents the same token.
-//
-// When the outcome of a refresh is unknown (timeout, 5xx, lost answer) the session is kept and nothing is retried in
-// this request: the gateway may already have rotated the token, and a retry would be a replay. The next request tries
-// again with the token held; if it was in fact rotated, the gateway sees the replay, revokes the family, answers 401,
-// and the session ends. That costs a login in the rare case the network failed right then, and keeps replay detection
-// without any overlap window. Until then the old access token is used while it is still valid; once it has expired the
-// request counts as logged out, without deleting the session.
+
+// When the outcome of a refresh is unknown the session is kept and nothing is retried in this request: the gateway may
+// already have rotated the token, and a retry would be a replay. The next request tries again with the token held; if
+// it was rotated, the gateway sees the replay, revokes the family, answers 401, and the session ends. Until then the
+// old access token is used while valid; once expired the request counts as logged out, session kept.
+
+// Design notes: docs/architecture.md.
 
 export type AccessResult =
   | { kind: "ok"; session: Session }

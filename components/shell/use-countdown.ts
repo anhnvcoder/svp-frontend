@@ -3,11 +3,9 @@
 import { useEffect, useState } from "react";
 
 // Whole seconds left of a wait that starts at `seconds` (null: no wait) and runs down to 0. A new `key` (the form state
-// of a new answer, the error of a new failure) starts the wait again, even with the same number of seconds.
-//
-// The count is read from a deadline, not from the number of timer callbacks: a phone pauses the timers of a page in the
-// background and a sleeping laptop fires them late, so counting callbacks would keep the button locked past the
-// server's Retry-After. Coming back to the tab reads the clock again at once.
+// of a new answer, the error of a new failure) restarts it, even with the same number of seconds. Read from a deadline,
+// not from timer callbacks: a phone pauses a background page's timers and a sleeping laptop fires them late, which
+// would keep the button locked past the server's Retry-After; coming back to the tab reads the clock again at once.
 export function useCountdown(seconds: number | null, key: unknown): number {
   const [current, setCurrent] = useState({ key, left: seconds ?? 0 });
   let left = current.left;

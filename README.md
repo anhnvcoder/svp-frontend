@@ -6,6 +6,7 @@ của backend), feed dọc phát HLS, hồ sơ, tải video lên bằng presigne
 ## Mục lục
 
 - [Bối cảnh](#bối-cảnh)
+- [Kiến trúc](docs/architecture.md)
 - [Cài đặt](#cài-đặt)
 - [Sử dụng](#sử-dụng)
 - [Hợp đồng API](#hợp-đồng-api)
@@ -22,7 +23,7 @@ Go, hợp đồng REST của gateway, stack compose và cluster k3d; `anhnvcoder
 nói chuyện với nhau qua **hợp đồng API có version và chữ ký**, không qua file chép tay. Lý do tách và các quyết định:
 [ADR-0033](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0033-svp-web-repo.md); thiết kế web client và danh
 sách gói được dùng: [ADR-0016](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0016-web-client.md). Bản chép
-thiết kế giao diện nằm ở [`design/`](design/README.md).
+thiết kế giao diện nằm ở [`design/`](design/README.md). Vì sao code TypeScript viết như hiện tại: [`docs/architecture.md`](docs/architecture.md).
 
 ## Cài đặt
 
@@ -50,6 +51,13 @@ make install
 pnpm exec playwright install chromium webkit
 ```
 
+`pnpm-workspace.yaml` có các override cho những gói chỉ `@lhci/cli` (`make lighthouse`) kéo vào; không gói nào trong số đó tới image web.
+`@lhci/cli` 0.15.1 là bản mới nhất của nó và ghim lighthouse 12.6.1, nên một gói cha mới hơn không mang được các bản vá này vào. Mỗi
+override giới hạn ở gói cha yêu cầu nó, nên không dependent nào khác bị dời theo. Khoá của override nêu gói cha mà không nêu version: pnpm
+im lặng bỏ qua override có version của gói cha không còn khớp, nên `cha@1.2.3>con` sẽ mất bản vá ở lần nâng gói cha kế tiếp, trong khi
+`install --frozen-lockfile` vẫn xanh. Gói con mang dải yêu cầu mà không bản đã vá nào thoả (pnpm áp override khi dải đó giao với dải
+gói cha hỏi), nên một gói cha về sau hỏi dải đã có bản vá sẽ tự giải quyết và không bị ép về các version này.
+
 ## Sử dụng
 
 `make help` liệt kê mọi target.
@@ -74,6 +82,111 @@ pnpm exec playwright install chromium webkit
 **LOCAL LAB ONLY:** seed của e2e, mỗi worker Playwright và Lighthouse xoá khoá rate limit đăng ký `svp:gw:rl:register:*` ở Redis
 db 10 của stack (Valkey db 10 của cluster khi chạy k3d), bằng script của backend. Không trỏ các lệnh này vào stack dùng chung.
 
+### Chi tiết từng target
+
+- **`make zizmor`:** zizmor persona `regular` trên cả repo, từ image chính thức ghim digest (đa kiến trúc: cùng một tham chiếu trên máy
+  arm64 và runner amd64), repo mount chỉ đọc. Mọi finding làm đỏ (exit code 11 đến 14); ngoại lệ có chủ đích nằm ở
+  `.github/zizmor.yml`, mỗi cái kèm lý do. Có `GH_TOKEN` (CI truyền `GITHUB_TOKEN` chỉ đọc của job) thì thêm audit online (impostor
+  commit, action có lỗ hổng đã biết); không có thì chỉ audit offline. `ZIZMOR_FORMAT=github` ghi workflow command (annotation trong CI);
+  `ZIZMOR_SARIF=<đường>` ghi báo cáo SARIF vào đó thay vì in, và không bao giờ đỏ vì finding (báo cáo cho bước upload code scanning).
+- **`make docs-check`:** markdownlint-cli2 với `.markdownlint.yaml` (văn phong), rồi lychee `--offline --include-fragments` (link tương
+  đối và anchor heading; link tới site khác không được theo vì mạng không ổn định và một check phụ thuộc nó sẽ đỏ vì lý do ngoài thay
+  đổi). Cả hai chạy từ image chính thức ghim digest (đa kiến trúc), không mạng, repo mount chỉ đọc ở `/repo`: link tương đối đi ra
+  ngoài repo là lỗi, có chủ đích. `DOCS` thu hẹp danh sách file (đường hay glob, tính từ gốc repo); mặc định là mọi file Markdown mà git
+  theo dõi cộng file mới chưa theo dõi, trừ những gì không phải văn bản của repo này: bản checkout backend (`.backend/`), các gói
+  (`node_modules/`) và code sinh (`gen/`). Cả hai công cụ luôn chạy; exit code khác 0 khi một trong hai báo lỗi.
+- **Ngân sách bundle** (trong `make check`): `size-limit` đo gzip trên output của `next build` theo `.size-limit.json`. Mỗi route có hai
+  ngân sách. Ngân sách thứ nhất tính phần route thêm vào runtime của Next: các chunk mà client reference manifest của build liệt kê cho
+  layout, page và error boundary của route (các script trong HTML của nó), cộng các chunk chúng tải lười (hls.js ở feed và `/v/[id]`).
+  Ngân sách thứ hai tính cả lần tải đầu: tập đó cộng runtime (`rootMainFiles` của `build-manifest.json`: React, react-dom, router của
+  Next, giống nhau ở mọi route), nên runtime phình ra cũng làm check đỏ. Polyfill `nomodule`, mà trình duyệt hiện hành bỏ qua, không
+  tính vào cả hai. Turbopack đặt tên chunk theo hash nội dung, nên mỗi tập được chép vào `.next/size-limit/<tập>/` trước, nơi glob của
+  cấu hình tìm thấy chúng. Bản chép bỏ dòng cuối của mỗi chunk, comment `sourceMappingURL`, như bước build của image làm
+  ([Image](#image)): ngân sách đếm đúng số byte image phục vụ, kể cả debug id.
+- **Khởi động thử server standalone** (trong `make check`): server standalone của `next build`, đúng cái image chạy, được khởi động một
+  lần và hỏi `/healthz`. Một module mà hook instrumentation nạp nhưng bản build bỏ sót (một `require` mà bundler và bước trace không
+  theo được) vẫn qua unit test và `next build`, nhưng làm mọi route của image trả 500. Server chỉ nghe trên `127.0.0.1`, ở một cổng
+  trống mà check tự chọn; nó nhận một môi trường cố định chứ không phải của shell này, với các host kết thúc bằng `.invalid`: `/healthz`
+  không đọc Redis hay gateway, nên không chạm gì. Server được dừng bằng handle của chính nó khi đã trả lời.
+- **`make lockfile-scan`:** cổng lỗ hổng của các npm dependency, đọc từ lockfile: image chỉ cho trivy thấy ít gói còn lại trong
+  `node_modules`, vì bundler gấp dependency của server vào chunk của nó. Dev dependency cũng tính: chúng chạy trong CI và build ra
+  bundle được phát hành. trivy quyết định bằng cờ của chính nó (`convert --exit-code --severity CRITICAL`), với
+  `.trivyignore.yaml` của repo này: còn CRITICAL nào sau đó cũng đỏ, đã có bản vá ở upstream hay chưa, và bảng của nó được in; HIGH
+  cũng vào SARIF, các mức thấp hơn thì không vào đâu. Chỉ lockfile được mount (chỉ đọc), thành `pnpm-lock.yaml` của gốc quét, để
+  finding trỏ vào file của repo. Báo cáo không có gói npm nào cũng đỏ: một định dạng lockfile mà trivy không còn đọc được sẽ qua mà
+  không quét gì. trivy chạy từ image mà `Makefile` của backend ghim và cần mạng để tải DB; DB không tải được thì target đỏ: không quét
+  với DB không rõ tuổi. `LOCKFILE` (đường tuyệt đối của file tên `pnpm-lock.yaml`) quét một lockfile khác, cho kiểm tra phủ định.
+  `LOCKFILE_SARIF` đặt thành đường tuyệt đối thì ghi báo cáo SARIF của finding HIGH và CRITICAL vào đó, trước khi cổng quyết định, nên một
+  lockfile bị chặn vẫn hiện trên `main`. `SVP_TRIVY_CACHE`, khi đặt, giữ DB ở thư mục đó; không đặt thì DB nằm trong cache bên trong
+  container.
+- **`make k8s-e2e`** (`e2e/k3d-e2e.sh`, chạy từ gốc repo, `Makefile` đặt Node và pnpm lên đầu `PATH`): test end-to-end `e2e/*.e2e.ts`
+  trên web của cluster `svp` ở `https://svp.localhost:8443` thay vì stack compose (`e2e/stack.ts`), trên Chromium và WebKit.
+  - `.k8s/ca.crt` và API của cluster phải có, nếu không không chạy gì. Sau đó `SVP_STACK=k3d`, và curl (`e2e/seed.sh`) cùng Node (`fetch`
+    của chính các spec) tin CA của cluster qua `CURL_CA_BUNDLE` và `NODE_EXTRA_CA_CERTS`; trình duyệt bỏ qua kiểm chứng chỉ (lý do ở
+    `e2e/stack.ts`).
+  - `SVP_E2E_GLITCHTIP=1` thêm `e2e/glitchtip.e2e.ts`, đọc API GlitchTip của cluster: token chỉ đọc của Secret
+    `svp-obs/glitchtip-api` vào `SVP_E2E_GLITCHTIP_TOKEN` của môi trường lượt chạy mà thôi (không in, không lên dòng lệnh), và một
+    port-forward tới `service/glitchtip` ở `127.0.0.1:8000` (cổng của `make k8s-ui-glitchtip` và `make k8s-sourcemaps`) sống suốt lượt
+    chạy, dừng bằng pid của nó dù lượt chạy kết thúc thế nào.
+  - `SVP_E2E_EVIDENCE` và mọi đối số được chuyển tiếp cho `playwright test`, như `make e2e`.
+  - **LOCAL LAB ONLY**, như `make e2e`: `e2e/seed.sh` và mọi worker Playwright xoá các khoá rate limit đăng ký của gateway
+    (`svp:gw:rl:register:*`) ở Valkey db 10 của cluster (`kubectl exec`, context `k3d-svp`). Không trỏ nó vào cluster dùng chung.
+- **`make measure-upload`** (`e2e/measure-upload.sh`, chạy từ gốc repo trên stack compose của backend, tức `make up` ở đó): một lần upload
+  video khoảng 100 MB từ Chromium qua `/upload` (`e2e/measure-upload.e2e.ts`), rồi một bản tóm tắt: thời gian từ lúc XHR bắt đầu tới lúc
+  load xong, thông lượng, CPU của main thread của trang trong lúc file lên, và thời gian tới `READY`; in ra và ghi vào
+  `test-results/measure-upload-<giờ UTC>.json` (gitignore). Video là video thật và được transcode: 160 s test pattern 1080p có nhiễu ở
+  khoảng 5 Mbit/s, tức khoảng 100 MB mà vẫn dưới 180 s mà web và media-worker nhận. Nó được tạo trong một thư mục tạm, xoá khi kết thúc.
+  **LOCAL LAB ONLY**, như lượt e2e (`e2e/seed.sh` đặt lại rate limit đăng ký của gateway ở Redis db 10).
+- **`make measure-web`** (`e2e/measure-web.sh`, chạy từ gốc repo trên stack compose của backend): bộ nhớ của container `web` lúc nghỉ,
+  cả lượt e2e (gồm test khung hình đầu, `e2e/first-frame.e2e.ts`), bộ nhớ ngay sau đó, rồi một bản tóm tắt: thời gian tới khung hình đầu
+  p50/p95 theo trình duyệt và hai số đọc bộ nhớ, in ra và ghi vào `test-results/measure-web-<giờ UTC>.json` (gitignore). Bộ nhớ là
+  `MemUsage` của `docker stats --no-stream`, tức bộ nhớ cgroup của container trừ phần cache file không hoạt động; "lúc nghỉ" là lúc
+  script này bắt đầu, nên chạy nó ngay sau `make up` của backend để có số đọc lúc nghỉ. Thoát với status của lượt e2e.
+  **LOCAL LAB ONLY**, như chính lượt e2e (`e2e/seed.sh` đặt lại rate limit đăng ký của gateway ở Redis db 10).
+- **Dữ liệu seed của e2e** (`e2e/seed.sh`): chạy một lần mỗi `playwright test` bởi `e2e/global-setup.ts` trên stack compose của `make up`,
+  qua gateway ở `127.0.0.1:8080`. Trên cluster `svp` (`make k8s-e2e`), `global-setup` truyền `https://api.svp.localhost:8443` trong
+  `SVP_E2E_GATEWAY_URL`, curl tin CA của cluster qua `CURL_CA_BUNDLE` (cho cả gateway lẫn storage), và `SVP_STACK=k3d` làm `lib.sh` đặt lại
+  giới hạn ở Valkey của cluster, như `make k8s-smoke`.
+  - Explore phải bắt đầu với ít nhất 21 video `READY` phát được, để feed có trang thứ ba và 20 lần chuyển video mỗi lần tới một video
+    chưa phát trong lượt chạy. Chỉ chuỗi video từ đầu Explore mà master playlist trả 200 mới được tính, cho tới video đầu tiên không trả
+    200: test đi feed từ video 0, và một video cũ có thể `READY` trong Postgres trong khi storage từng giữ file HLS của nó đã bị làm rỗng
+    (volume object store bị xoá). Video của các lượt trước được tính; chỉ những video còn thiếu mới được upload, bởi các tác giả mới, mỗi
+    tác giả tối đa `per_author`: lớp upload của gateway cho burst 10 mỗi user và tối đa 3 upload đang mở, nên mỗi upload chờ `READY`
+    trước khi cái kế tiếp bắt đầu, và một 429 chờ `Retry-After` của nó.
+  - Mỗi lượt chạy upload thêm một video của một tác giả mới có tiêu đề HTML (mô hình mối đe doạ WEB-1). Nó là video `READY` mới nhất, nên
+    đứng đầu Explore, và tác giả của nó không có video nào khác: theo dõi họ làm feed Following có đúng video đó.
+  - Ghi `{"xss": {"video_id", "author_id", "title"}, "explore_ready": N}` vào file mà đối số đầu tiên nêu.
+  - **LOCAL LAB ONLY:** `source` `lib.sh` xoá các khoá rate limit đăng ký của gateway (`svp:gw:rl:register:*`) ở Redis db 10 trên
+    `127.0.0.1:6379` (Valkey db 10 của cluster trên k3d) bằng `SCAN` + `DEL`, như `make smoke`. BFF của web tới gateway từ một địa chỉ
+    container, nên mọi trình duyệt của mọi lượt chạy dùng chung một bucket đăng ký (burst 20 mỗi giờ). Không trỏ nó vào stack dùng chung.
+- **`make lighthouse`** (`lighthouse/run.sh`, chạy từ gốc repo trên stack compose của backend): ba lượt Lighthouse (`@lhci/cli`) cho mỗi
+  trong hai trang, trong Chromium của Playwright, với cài đặt mobile mặc định của Lighthouse (điện thoại giả lập, 4G chậm mô phỏng và CPU
+  chậm 4 lần; Lighthouse không có preset tên mobile, preset desktop của nó là cái còn lại):
+  - feed, `/`, đã đăng nhập: một user mới, đăng ký ở gateway, đăng nhập qua trang login của web (`lighthouse/session.ts`) và Lighthouse
+    gửi session cookie đó với mọi request (`extraHeaders`);
+  - `/v/{id}` của một video `READY`, chưa đăng nhập: video mới nhất của Explore, hoặc, khi Explore rỗng, một clip thử 4 s mà user
+    đăng trước.
+
+  Sau đó là một bảng LCP, CLS, TBT và phần tử LCP của từng lượt, các lỗi console, và `lhci assert` theo ngưỡng của
+  `lighthouse/lighthouserc.json`, mỗi ngưỡng kiểm trên trung vị của ba lượt của một trang. Giá trị ngưỡng và lý do của chúng ở
+  [`AGENTS.md`](AGENTS.md). Báo cáo, HTML và JSON mỗi lượt cùng `manifest.json`, vào `test-results/lighthouse/` (gitignore); không upload đi đâu. Thoát với status của `lhci assert`.
+  - Cookie không vào output và báo cáo: Lighthouse đọc nó từ một file riêng, bản chép mà mọi kết quả ghi lại
+    (`configSettings.extraHeaders`) bị thay trước khi báo cáo được ghi, lượt chạy đỏ nếu vẫn tìm thấy giá trị cookie trong một kết quả
+    hay báo cáo, và phiên được đăng xuất khi thoát để cookie ngừng dùng được.
+  - **LOCAL LAB ONLY:** `source` `deploy/compose/lib.sh` của backend xoá các khoá rate limit đăng ký của gateway (`svp:gw:rl:register:*`)
+    ở Redis db 10 trên `127.0.0.1:6379` bằng `SCAN` + `DEL`, như `e2e/seed.sh` và `make smoke` của backend. Không trỏ nó vào stack dùng
+    chung.
+
+### Test e2e
+
+Trên Linux (runner của CI), WebKit của Playwright là WebKitGTK, phát media qua GStreamer và tạm dừng pipeline của một `<video>` đang tắt
+tiếng mà không nằm trong viewport. Một pipeline Media Source bị tạm dừng như vậy lỗi ở lần push kế tiếp ("Failed to push buffer",
+`MEDIA_ERR_SRC_NOT_SUPPORTED`); hls.js đặt lại nó ba lần rồi bỏ cuộc, nên item kế được preload của feed, và đôi khi một item hiện tại
+được tạo trước khi được bố cục, kết thúc ở `data-state="error"`. Safari, thứ mà các lượt này đứng thay, không có kiểu tạm dừng đó. Biến
+`WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS` của WebKitGTK tắt nó, và `playwright.config.ts` đặt biến này cho WebKit. Playwright
+truyền `env` cho trình duyệt thay vì `process.env`, nên cấu hình spread `process.env` vào đó. WebKit trên macOS bỏ qua biến này. Chi tiết
+test e2e theo vùng code: [`docs/architecture.md`](docs/architecture.md#test-e2e).
+
 ## Hợp đồng API
 
 - Spec OpenAPI của gateway chỉ có một nguồn: backend, `services/gateway/openapi.yaml`. Backend phát hành mỗi `info.version` thành OCI
@@ -85,6 +198,10 @@ db 10 của stack (Valkey db 10 của cluster khi chạy k3d), bằng script c�
 - Nâng hợp đồng: đổi `version` và `digest` của cùng một bản (Renovate mở PR), `make generate`, commit `gen/api.d.ts`. Major mới là
   thay đổi breaking: sửa code gọi gateway trong cùng PR.
 - Không sửa tay `gen/api.d.ts`, không chép file spec vào repo này.
+- `scripts/contract.sh` có hai chế độ: `generate` ghi `gen/api.d.ts` (openapi-typescript) từ bản phát hành đã ghim; `check` sinh vào một
+  thư mục tạm và đỏ, in diff, khi `gen/api.d.ts` khác; không ghi gì của cây làm việc. Layer OpenAPI tải về cũng phải băm ra digest mà manifest nêu. Bảng
+  nguồn phát hành mà `cosign verify` đọc cũng là bảng Kyverno và mọi verifier cùng đọc. Script chạy từ `Makefile`, sau khi checkout
+  `.backend/` (`scripts/backend.sh checkout`) và với Node, pnpm của repo này ở đầu `PATH`; cần docker (ORAS ghim, và cosign trừ khi đã có trên `PATH`), `jq` và mạng.
 
 ## Commit ghim của backend
 
@@ -93,6 +210,16 @@ db 10 của stack (Valkey db 10 của cluster khi chạy k3d), bằng script c�
 luật file ngoại lệ, rescan, helper của job `promote`) và công cụ ghim digest trong `Makefile` của nó (cả `YQ_IMAGE` của bước promote). `make backend-checkout` đưa `.backend/` (gitignore) về đúng commit đó, chỉ tải khi commit
 đổi; `.backend/` có thay đổi chưa commit thì dừng. Renovate theo dõi `main` của backend và mở PR nâng commit.
 
+`scripts/backend.sh` là nơi đọc hai bản clone của backend (`anhnvcoder/svp-backend`) và commit backend mà stg chạy; repo này chỉ đọc chúng,
+không bao giờ ghi:
+
+| Lệnh | Việc |
+| --- | --- |
+| `backend.sh dir` | in thư mục backend mà e2e, các phép đo và việc tải source map dùng làm harness: stack compose và cluster `svp` mà nó chạy, `deploy/compose/lib.sh` và `deploy/k8s/lib.sh` (user, upload, đặt lại rate limit đăng ký), `.env` và `.k8s/ca.crt` của nó. Là `SVP_BACKEND_DIR` khi đặt (CI đặt nó tới checkout của bước đó); không thì `<workspace>/backend`, với `<workspace>` là nơi giữ checkout chính của repo này (thư mục cha của thư mục chứa common directory của git, giống nhau từ một worktree). Cây làm việc của nó được đọc như đang có; không clone, fetch hay chuyển nhánh ở đó. Thư mục không phải clone của backend thì lỗi và in lệnh tạo một bản: không bao giờ đọc bản khác thay vào |
+| `backend.sh checkout` | đưa `.backend/` (gitignore) về checkout của backend ở commit của `.backend-commit`, chỗ duy nhất ghim nó: script `deploy/ci/` của nó (cổng quét, adapter nền tảng), các công cụ `Makefile` của nó ghim digest và bảng nguồn phát hành của nó (identity mà một contract được ký) đều đọc ở đó, giống nhau trên máy và trong CI. Checkout đã ở commit đó thì để nguyên (CI có thể tự checkout); commit khác thì fetch (chỉ commit đó, ẩn danh) rồi checkout detached. Từ chối thư mục có thay đổi chưa commit hay thư mục không phải clone của backend thay vì ghi đè |
+| `backend.sh stg-revision` | in commit backend mà stg chạy, một SHA đầy đủ và không gì khác trên stdout: `revision` của `envs/stg/charts.yaml` trong bản clone `svp-gitops` (`anhnvcoder/svp-gitops`, cấu hình triển khai), là `SVP_GITOPS_DIR` khi đặt, không thì `<workspace>/gitops`. Cây làm việc của nó được đọc như đang có, như của backend: không clone, fetch hay chuyển nhánh ở đó, và thư mục không phải clone của `svp-gitops` thì lỗi và in lệnh tạo một bản |
+| `backend.sh stg-check` | đỏ trừ khi backend của `backend.sh dir` đang ở commit đó và chạy được các bản phát hành của stg (`make up IMAGES=stg` ở đó): backend cũ hơn chế độ này bỏ qua `IMAGES` và build sáu service từ source, không phải backend mà stg chạy |
+
 ## Image
 
 `Dockerfile` ở gốc repo, context là gốc repo (`.dockerignore` loại `node_modules`, output build, `.env*`, `.git`, `.backend/` và
@@ -100,6 +227,35 @@ công cụ của repo). Image chạy server standalone của Next trên Node dis
 `sourcemaps` (`make sourcemaps`, `make k8s-sourcemaps` tải lên GlitchTip của stack local). Build, quét, ký image phát hành chạy trong CI
 của repo này bằng composite action của backend ở `.backend-commit`; promote lên stg là bước `yq` + `gh` của chính job `promote` (helper `yq_`,
 `promote_open_pr`, `promote_image_row` của `deploy/ci/common.sh` ở commit ghim).
+
+Build image:
+
+```sh
+env -u DOCKER_DEFAULT_PLATFORM docker build -t svp/web:dev .
+```
+
+Không bí mật nào và không cài đặt lúc chạy nào vào build: `GATEWAY_URL`, `REDIS_URL`, `APP_ORIGIN`, `MEDIA_ORIGIN`, `UPLOAD_ORIGIN`,
+`SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` và các biến `OTEL_*` của SDK OpenTelemetry được server đọc khi
+khởi động hoặc khi một request cần, nên một image chạy được ở compose và ở cluster. Build argument duy nhất, `SVP_BUILD_ID`, là id của
+bản build, không phải cài đặt. Source map của bundle trình duyệt được lấy ra từ cùng bản build, vào stage `sourcemaps`:
+
+```sh
+env -u DOCKER_DEFAULT_PLATFORM docker build --target sourcemaps --output type=local,dest=<thư mục> .
+```
+
+Cách stage build xử lý source map: `next build` ghi một map cạnh mỗi chunk và stylesheet của trình duyệt, mỗi file kết thúc bằng một
+comment `sourceMappingURL` nêu map của nó (một tên băm riêng), và map của các bundle server trong cây standalone. Một map được phục vụ
+sẽ công bố toàn bộ source của client, nên:
+
+- mọi map của `.next/static` được chuyển tới `/sourcemaps/_next/static` (đường mà trình duyệt tải chunk), cùng một bản chép của mỗi chunk
+  JavaScript nêu một map: chunk như lúc build, có comment ghép nó với map của nó cho việc upload (`make sourcemaps`), và có debug id
+  đúng là cái mà chunk được phục vụ mang;
+- các chunk và stylesheet được phục vụ mất comment đó (một map "hidden": bundle không nêu map nào), vốn là dòng cuối của chúng, nên mọi
+  dòng và cột khác, và comment debug id, vẫn là cái map mô tả;
+- map của server bị xoá.
+
+Các bước kiểm sau đó làm build đỏ khi còn một map, hay chữ `sourceMappingURL` ở bất kỳ dạng nào, sót lại cho stage runtime. Build và các
+bước chuyển chỉ là hai bước của stage này: stage runtime ở dưới chép kết quả, không bao giờ chép các layer, nên không map nào vào image.
 
 ## CI và phát hành
 
@@ -119,6 +275,17 @@ Repo public và PR từ fork chạy workflow với code của fork, nên mọi w
 - Mọi action ghim SHA đầy đủ của commit: tag bị dời sang code khác không đổi gì ở đây (tag ở comment cuối dòng cho người đọc và Renovate).
 - `actions/checkout` không để token trong `.git/config` (`persist-credentials: false`).
 - Giá trị người ngoài điều khiển (tên nhánh, tiêu đề, input, giá trị matrix từ `plan`) vào script qua `env:`, không qua `${{ }}` trong `run:`.
+
+`.grype.yaml` liệt kê các lỗ hổng mà grype bỏ khỏi lượt quét SBOM của image web (bước grype của composite action `image-leg` của backend,
+chạy từ `.backend/` bởi `images.yml`). grype đọc nguyên file (`-c`), nên file chỉ chứa các rule dạng:
+
+```yaml
+- vulnerability: <id>
+  include-aliases: true
+  package:
+    name: <tên của purl, mọi ký tự đặc biệt của regex được escape bằng \>
+    version: <version>
+```
 
 Từng workflow, ruleset và Renovate:
 

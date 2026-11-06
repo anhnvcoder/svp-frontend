@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 type ProfileHeaderProps = {
   userId: string;
   handle: string;
-  // The user's own text, rendered as React text only (WEB-1).
+  // The user's own text, rendered as React text only.
   displayName: string;
   following: boolean;
   // A follow change is on its way, or a rate limit runs.
@@ -16,8 +16,8 @@ type ProfileHeaderProps = {
   onBack: () => void;
 };
 
-// Top of another user's profile (design/SVP Mobile.dc.html M35–M37; SVP Desktop.dc.html D10): on a phone a bar
-// with back, @handle and copy link above the avatar, name and a full-width follow button; on a wide screen one row.
+// Top of another user's profile: on a phone a bar with back, @handle and copy link above the avatar, name and a
+// full-width follow button; on a wide screen one row.
 // The follow button is a toggle: aria-pressed says whether the user is followed, the label and icon say it too.
 export function ProfileHeader({
   userId,
@@ -53,7 +53,7 @@ export function ProfileHeader({
       <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4.5 gap-y-4 px-4 pt-2 pb-5 md:flex md:w-full md:max-w-240 md:gap-6 md:p-0">
         <Avatar seed={userId} name={displayName} className="size-20 text-[34px] md:size-26 md:text-[40px]" />
         <div className="flex min-w-0 flex-col gap-0.5 md:flex-1 md:gap-1">
-          {/* <bdi>: right-to-left text in the name does not reorder what follows it (WEB-18). */}
+          {/* <bdi>: right-to-left text in the name does not reorder what follows it. */}
           <h1 className="text-[22px] font-bold break-all md:text-[28px]">
             <bdi>{displayName}</bdi>
           </h1>

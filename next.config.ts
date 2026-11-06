@@ -2,10 +2,11 @@ import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 import { locales } from "./i18n/config";
 
-// Locale and messages per request, read from i18n/request.ts (no locale prefix in the URL). Every message file under
-// messages/ is compiled at build time, so neither the server nor the browser parses ICU syntax at run time: the
-// browser bundle carries a small formatter instead of the ICU parser (about 8 kB gzip less on every page, all of it
-// loaded before the page's first paint). Unit tests import the JSON files as they are and format them the usual way.
+// Design notes: docs/architecture.md.
+
+// Locale and messages per request, read from i18n/request.ts (no locale prefix in the URL). Message files are compiled
+// at build time, so the browser bundle carries a small formatter instead of the ICU parser (about 8 kB gzip less on
+// every page). Unit tests import the JSON files as they are and format them the usual way.
 const withNextIntl = createNextIntlPlugin({
   requestConfig: "./i18n/request.ts",
   experimental: { messages: { path: "./messages", format: "json", locales, precompile: true } },
@@ -19,12 +20,9 @@ const buildId = process.env.SVP_BUILD_ID || undefined;
 const nextConfig: NextConfig = {
   // A self-contained server for the container image: server.js plus the node_modules it really uses.
   output: "standalone",
-  // The OpenTelemetry SDK of server/telemetry/otel.ts is loaded by Node from node_modules, not bundled. Its ES module
-  // builds load some dependencies with a require made by createRequire(import.meta.url) in another module, which the
-  // bundler cannot follow: bundled, @grpc/grpc-js (the OTLP/gRPC exporters) was missing from the standalone output and
-  // every export failed with "Cannot find module", while the server itself ran. Left external, each package is traced
-  // with its own dependencies, @grpc/grpc-js included (the exporters also import it plainly). Every package the server
-  // imports, so one copy of the SDK runs.
+  // The OpenTelemetry SDK of server/telemetry/otel.ts is loaded by Node, not bundled: bundled, @grpc/grpc-js was
+  // missing from the standalone output and every export failed with "Cannot find module", while the server itself ran.
+  // List every package the server imports, so one copy of the SDK runs.
   serverExternalPackages: [
     "@opentelemetry/api",
     "@opentelemetry/core",
@@ -51,9 +49,8 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   poweredByHeader: false,
   // Maps of the browser bundle, so GlitchTip can show a browser error's stack in the source. They never reach a
-  // browser: the image's build moves them out of .next/static and drops the sourceMappingURL comments, and they go to
-  // GlitchTip only (make sourcemaps). next build of make check writes them too, so the bundle budgets measure
-  // the chunks the image serves.
+  // browser: the image's build moves them out of .next/static and drops the sourceMappingURL comments (make sourcemaps
+  // sends them to GlitchTip). make check writes them too, so the bundle budgets measure the chunks the image serves.
   productionBrowserSourceMaps: true,
   // A debug id in every chunk and its map (globalThis._debugIds at run time): a browser report names the id of each
   // chunk in its stack, and GlitchTip finds the map by that id, whatever the chunk's URL.

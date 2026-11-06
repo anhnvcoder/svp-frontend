@@ -79,9 +79,8 @@ function awaitedIdsOf(uploads: readonly Upload[]): string[] {
   );
 }
 
-// "My videos" (/me; design/SVP Mobile.dc.html M33–M34, SVP Desktop.dc.html D09): every video of the user in every
-// state, newest first, with the progress of the uploads running in this tab. The list asks again while a video is
-// unfinished (use-video-pages.ts).
+// "My videos" (/me): every video of the user in every state, newest first, with the progress of the uploads running
+// in this tab. The list asks again while a video is unfinished (use-video-pages.ts).
 export function MyVideosScreen({
   userId,
   initialPage,

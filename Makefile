@@ -1,19 +1,19 @@
-# Build, check and test entry point of the web client. `make help` lists the targets.
-#
-# Two copies of the backend repository (anhnvcoder/svp-backend) serve different ends (scripts/backend.sh):
-#   - .backend/, gitignored: the backend at the commit of .backend-commit (make backend-checkout), the one place that
-#     pins it. The scripts of its deploy/ci/ (scan gate, release helpers), the composite actions of the image pipeline
-#     (.github/actions/, CI only), the tools its Makefile pins by digest (trivy, ORAS, cosign) and its table of release
-#     sources are read there, the same on a machine and in CI.
-#   - SVP_BACKEND_DIR, default <workspace>/backend: the backend whose compose stack or cluster svp the end-to-end runs,
-#     measurements and source map uploads talk to, with its deploy/compose/lib.sh, deploy/k8s/lib.sh, .env and
-#     .k8s/ca.crt. Its working tree is read as it is.
+# Entry point of the web client's build, check and test. `make help` lists the targets. Two copies of the backend
+# repository (anhnvcoder/svp-backend) serve different ends (scripts/backend.sh).
+# Design notes: README.md.
+
+# .backend/ (gitignored): the backend at the commit of .backend-commit (make backend-checkout), the one place that pins
+# it. The scripts of its deploy/ci/, the composite actions of the image pipeline (CI only), the tools its Makefile pins
+# by digest and its table of release sources are read there, the same on a machine and in CI.
+
+# SVP_BACKEND_DIR, default <workspace>/backend: the backend whose compose stack or cluster svp the end-to-end runs,
+# measurements and source map uploads talk to, with its deploy/compose/lib.sh, deploy/k8s/lib.sh, .env and .k8s/ca.crt.
+# Its working tree is read as it is.
 
 # Node's major is pinned in .nvmrc and pnpm's exact version in the packageManager field of package.json; every target
-# that runs Node checks both before it runs anything and, on a mismatch, prints the command that installs the right
-# one. nvm leaves PATH to the shell and its default may be another major, so the newest nvm install of the pinned major
-# goes first on PATH; without one (CI's setup-node) PATH is used as it is. Next's anonymous telemetry is off for every
-# target.
+# that runs Node checks both first and, on a mismatch, prints the command that installs the right one. nvm leaves PATH
+# to the shell and its default may be another major, so the newest nvm install of the pinned major goes first on PATH;
+# without one (CI's setup-node) PATH is used as it is. Next's anonymous telemetry is off for every target.
 NODE_MAJOR := $(shell cat .nvmrc 2>/dev/null)
 NVM_DIR ?= $(HOME)/.nvm
 NODE_BIN := $(shell ls -d $(NVM_DIR)/versions/node/v$(NODE_MAJOR).*/bin 2>/dev/null | sort -V | tail -1)
@@ -71,13 +71,10 @@ tools: backend-checkout ## Install gitleaks and actionlint, at the versions the 
 	  echo "go install $$package@$$version"; go install "$$package@$$version" || exit 1; \
 	done
 
-# Security lint of the workflows (ADR-0041 (g)): zizmor with the regular persona on the whole repository, from its
-# official image pinned by digest (multi-arch: the same reference on an arm64 dev machine and an amd64 runner), the
-# repository mounted read-only. Every finding fails (exit codes 11 to 14); the deliberate ones are left out in
-# .github/zizmor.yml, each with its reason. With GH_TOKEN set (CI passes the job's read-only GITHUB_TOKEN) the online
-# audits run too (impostor commits, actions with known vulnerabilities); without it, offline audits only.
-# ZIZMOR_FORMAT=github writes workflow commands (annotations in CI); ZIZMOR_SARIF=<path> writes a SARIF report there
-# instead and never fails on a finding (the report of the code scanning upload).
+# Security lint of the workflows: zizmor with the regular persona on the whole repository, from its official image
+# pinned by digest (multi-arch), the repository mounted read-only. Every finding fails (exit codes 11 to 14); the
+# deliberate ones are left out in .github/zizmor.yml, each with its reason. GH_TOKEN (CI) adds the online audits
+# (impostor commits, vulnerable actions). ZIZMOR_SARIF=<path> writes a SARIF report and never fails on a finding.
 # renovate: datasource=docker depName=ghcr.io/zizmorcore/zizmor
 ZIZMOR_IMAGE := ghcr.io/zizmorcore/zizmor:1.31.1@sha256:42d409dbb851d4c5d35a058cf042b828bea1e3f2884378c526eb0974780e18d9
 ZIZMOR_FORMAT ?= plain
@@ -89,14 +86,10 @@ zizmor: ## Security lint of the workflows with the pinned zizmor (online audits 
 		$(ZIZMOR_IMAGE) --persona=regular --no-progress --color=never --cache-dir /tmp/zizmor "$$@" . \
 		$(if $(ZIZMOR_SARIF),> '$(ZIZMOR_SARIF)')
 
-# Static check of the Markdown: markdownlint-cli2 with .markdownlint.yaml (style), then lychee --offline --include-fragments
-# (relative links and heading anchors; links to other sites are not followed: the network is not stable and a check that
-# depends on it fails for reasons outside the change), both from their official images pinned by digest (multi-arch),
-# without network, the repository mounted read-only at /repo: a relative link that leaves the repository is an error on
-# purpose. DOCS narrows the files (paths or globs, relative to the repository); the default is every Markdown file git
-# tracks plus the new ones it does not track yet, less what is not this repository's own text: the backend checkout
-# (.backend/), the packages (node_modules/) and the generated code (gen/). Both tools always run; the exit code is not 0
-# when either reports a problem.
+# markdownlint-cli2 with .markdownlint.yaml (style), then lychee --offline --include-fragments (relative links and
+# heading anchors; links to other sites are not followed: the network is not stable and a check that depends on it fails
+# for reasons outside the change), from official images pinned by digest, without network, the repository mounted
+# read-only: a relative link that leaves the repository is an error on purpose. Both tools always run.
 # renovate: datasource=docker depName=davidanson/markdownlint-cli2
 MARKDOWNLINT_IMAGE := davidanson/markdownlint-cli2:v0.24.0@sha256:70ead7c0352d22d04bbe612cd96b54ec591538d8f4626cafe391bb2ecf3639ca
 # renovate: datasource=docker depName=lycheeverse/lychee
@@ -131,15 +124,10 @@ generate: backend-checkout ## Generate gen/api.d.ts from the released contract a
 generate-check: backend-checkout ## Fail when make generate would change gen/api.d.ts: print the diff (writes nothing under gen/)
 	@$(NODE) bash scripts/contract.sh check
 
-# Bundle budgets on the output of next build, gzip, checked by size-limit with .size-limit.json. Each route has
-# two budgets. The first covers what the route adds to Next's
-# runtime: the chunks the build's client reference manifest lists for the route's layouts, page and error boundaries
-# (the scripts of its HTML), plus the chunks those load lazily (hls.js on the feed and /v/[id]). The second covers the
-# whole first load, that set plus the runtime (rootMainFiles of build-manifest.json: React, react-dom, Next's router,
-# the same on every route), so a runtime that grows fails the check too. The nomodule polyfill, which current browsers
-# skip, is left out of both. Turbopack names chunks by a content hash, so each set is copied to .next/size-limit/<set>/
-# first, where the config's globs find it. The copy drops each chunk's last line, the sourceMappingURL comment, as the
-# image's build does (Dockerfile): the budgets count the bytes the image serves, debug id included.
+# Bundle budgets on the output of next build, gzip, checked by size-limit with .size-limit.json. Each route has two
+# budgets: what the route adds to Next's runtime, and the whole first load, that set plus the runtime. Turbopack names
+# chunks by a content hash, so each set is copied to .next/size-limit/<set>/ first, where the config's globs find it;
+# the copy drops each chunk's last line, the sourceMappingURL comment, as the image's build does (Dockerfile).
 define SIZE_CHUNKS
 const fs = require("node:fs");
 const runtime = JSON.parse(fs.readFileSync(".next/build-manifest.json", "utf8")).rootMainFiles;
@@ -172,10 +160,9 @@ endef
 export SIZE_CHUNKS
 
 # The standalone server of next build, the one the image runs, started once and asked for /healthz: a module its
-# instrumentation hook loads but the build left out (a require the bundler and the trace cannot follow) passes the
-# unit tests and next build, yet makes every route of the image answer 500. On 127.0.0.1 only, at a free port the
-# check picks itself; the server gets a fixed environment, not this shell's, whose hosts end in .invalid: /healthz
-# reads neither Redis nor the gateway, so nothing is reached. Stopped by its own handle once it answers.
+# instrumentation hook loads but the build left out passes the unit tests and next build, yet makes every route of the
+# image answer 500. On 127.0.0.1 only, at a free port the check picks itself, with a fixed environment, not this
+# shell's, whose hosts end in .invalid: /healthz reads neither Redis nor the gateway, so nothing is reached.
 define STANDALONE_BOOT
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
@@ -239,17 +226,8 @@ check: ## Lint, format check, typecheck, unit tests (Redis db 15), production bu
 
 # Vulnerability gate of the npm dependencies, read from the lockfile: the image shows trivy only the few packages left
 # in its node_modules, since the bundler folds the server's dependencies into its chunks. Development dependencies
-# count too: they run in CI and build the bundle that ships. trivy decides from its own flags (convert --exit-code
-# --severity CRITICAL), with .trivyignore.yaml of this repository: any CRITICAL left after it fails, fixed upstream or
-# not, and its table is printed; HIGH also goes to the SARIF, lower severities nowhere. Only the lockfile is mounted
-# (read-only), at pnpm-lock.yaml of the scan root so the
-# findings point at the file of the repository. A report with no npm package fails too: a lockfile format trivy no
-# longer reads would otherwise pass with nothing scanned. trivy runs from the image the backend's Makefile pins and
-# needs the network for its DB; a DB it cannot download fails the target: no scan against a DB of unknown age.
-# LOCKFILE (absolute path of a file named pnpm-lock.yaml) scans another lockfile, for a negative check. LOCKFILE_SARIF
-# set to an absolute path writes a SARIF report of the HIGH and CRITICAL findings there, before the gate decides, so a
-# blocked lockfile still shows on main. SVP_TRIVY_CACHE, when set, keeps the DB in that directory; unset, the DB goes
-# to a cache inside the container.
+# count too: they run in CI and build the bundle that ships. Any CRITICAL left after .trivyignore.yaml fails, fixed
+# upstream or not; so does a report with no npm package or a DB trivy cannot download: no scan on a DB of unknown age.
 LOCKFILE ?= $(CURDIR)/pnpm-lock.yaml
 LOCKFILE_SARIF ?=
 lockfile-scan: backend-checkout ## trivy fs on pnpm-lock.yaml, dev dependencies included; fails on any CRITICAL (LOCKFILE_SARIF=<absolute path> writes SARIF)

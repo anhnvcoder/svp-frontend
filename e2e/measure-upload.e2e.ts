@@ -3,14 +3,13 @@ import { statSync, writeFileSync } from "node:fs";
 import { expect, logIn, registerAccount, test } from "./fixtures";
 
 // The upload measurement of e2e/measure-upload.sh (`make measure-upload`), Chromium only: one ~100 MB video through
-// /upload, the way a user sends it.
-// - Upload time: the Resource Timing entry of the XHR's POST to the storage, startTime to responseEnd. It includes the
-//   CORS preflight, which is part of what the user waits for.
-// - CPU: DevTools Performance.getMetrics before the click and right after the POST ended. TaskDuration is the time the
-//   page's main thread was busy, ScriptDuration the part of it running JavaScript (the progress events and React).
-//   The bytes themselves go out from Chromium's network process, which these metrics do not count.
-// - READY: polled once a second through the web's API from the XHR's start.
-// The file comes from SVP_E2E_MEASURE_UPLOAD_FILE; the result goes to SVP_E2E_MEASURE_UPLOAD_OUT.
+// /upload, the way a user sends it, then READY polled once a second through the web's API from the XHR's start. The
+// file comes from SVP_E2E_MEASURE_UPLOAD_FILE; the result goes to SVP_E2E_MEASURE_UPLOAD_OUT.
+
+// - Upload time: the Resource Timing entry of the XHR's POST to the storage, startTime to responseEnd, including the
+//   CORS preflight the user waits for too.
+// - CPU: DevTools Performance.getMetrics before the click and right after the POST ended: TaskDuration is the time the
+//   page's main thread was busy, ScriptDuration the part running JavaScript; Chromium's network process is not counted.
 
 const file = process.env.SVP_E2E_MEASURE_UPLOAD_FILE ?? "";
 const out = process.env.SVP_E2E_MEASURE_UPLOAD_OUT ?? "";

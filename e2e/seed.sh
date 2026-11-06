@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
-# Test data for the web client's end-to-end tests (e2e/*.e2e.ts), run once per `playwright test` by
-# e2e/global-setup.ts against the compose stack of `make up`, through the gateway at 127.0.0.1:8080. On cluster svp
-# (`make k8s-e2e`) global-setup passes https://api.svp.localhost:8443 in SVP_E2E_GATEWAY_URL, curl trusts the
-# cluster's CA through CURL_CA_BUNDLE (for the gateway and the storage alike), and SVP_STACK=k3d makes lib.sh reset the
-# limit in the cluster's Valkey, as `make k8s-smoke` does.
-#
-# - Explore must start with at least 21 READY videos that play, so the feed has a third page and 20 moves from video
-#   to video each reach a video not played yet in the run. Only the run of videos from the top of explore whose master
-#   playlist answers 200 counts, up to the first one that does not: the tests walk the feed from video 0, and an older
-#   video may be READY in Postgres while the storage that held its HLS files was emptied (a deleted object store volume).
-#   Videos of earlier runs count; only the missing ones are uploaded, by
-#   fresh authors, at most per_author each: the gateway's upload class allows a burst of 10 per user and at most 3
-#   open uploads, so each upload waits for READY before the next one starts, and a 429 waits for its Retry-After.
-# - Every run uploads one more video by a fresh author with an HTML title (threat model WEB-1). It is the newest READY
-#   video, so the first of explore, and its author has no other video: following them fills the Following feed with
-#   exactly that one.
-#
-# Writes {"xss": {"video_id", "author_id", "title"}, "explore_ready": N} to the file named by the first argument.
-#
+# Test data for the web client's end-to-end tests (e2e/*.e2e.ts), run once per `playwright test` by e2e/global-setup.ts
+# against the compose stack of `make up`, through the gateway at 127.0.0.1:8080. On cluster svp (`make k8s-e2e`)
+# SVP_STACK=k3d makes lib.sh reset the limit in the cluster's Valkey. Writes {"xss": {"video_id", "author_id",
+# "title"}, "explore_ready": N} to the file named by the first argument.
+
+# Design notes: README.md.
+
+# Explore must start with at least 21 READY videos that play, so the feed has a third page and 20 moves from video to
+# video each reach a video not played yet in the run. Only the run of videos from the top of explore whose master
+# playlist answers 200 counts: an older video may be READY in Postgres while the storage that held its HLS files was
+# emptied (a deleted object store volume).
+
+# Only the missing videos are uploaded, by fresh authors, at most per_author each: the gateway's upload class allows a
+# burst of 10 per user and at most 3 open uploads, so each upload waits for READY before the next one starts, and a 429
+# waits for its Retry-After.
+
+# Every run uploads one more video by a fresh author with an HTML title. It is the newest READY
+# video, so the first of explore, and its author has no other video: following them fills the Following feed with
+# exactly that one.
+
 # LOCAL LAB ONLY: sourcing lib.sh deletes the gateway's register rate limit keys (svp:gw:rl:register:*) in Redis db 10
 # on 127.0.0.1:6379 (Valkey db 10 of the cluster on k3d) with SCAN + DEL, as `make smoke` does. The web's BFF reaches
 # the gateway from one container address, so every browser of every run shares one register bucket (burst 20 per
@@ -99,7 +100,7 @@ clip_size=$(file_size "$work/clip.mp4")
 
 new_user reader
 ready=$(count_explore "$work/reader.auth")
-# The WEB-1 video below is one of the min_ready.
+# The HTML-title video below is one of the min_ready.
 missing=$((min_ready - 1 - ready))
 if ((missing > 0)); then
   for ((i = 0; i < missing; i++)); do

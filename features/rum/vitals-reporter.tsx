@@ -3,12 +3,12 @@
 import { useEffect } from "react";
 import { watchVitals } from "./beacon";
 
-// Measures the page's web vitals and sends them to /rum (beacon.ts). web-vitals is loaded only after the page's load
-// event, in a chunk of its own, so it takes nothing from the page's first paint; its observers read the entries the
-// browser buffered before. Rendered by the root layout: global-error, which replaces that layout, unmounts it, and the
-// error page sends nothing. Under app/error.tsx and nested error boundaries the root layout stays mounted, so the
-// reporter keeps running and still sends: those values measure the page as it loaded and ran before the error, which
-// is real data, not a broken reading of the error page.
+// Design notes: docs/architecture.md.
+
+// Measures the page's web vitals and sends them to /rum. web-vitals is loaded only after the page's load event, in a
+// chunk of its own, so it takes nothing from the first paint; its observers read the entries the browser buffered
+// before. Rendered by the root layout: global-error replaces that layout, so its error page sends nothing. Under
+// error.tsx and nested boundaries the layout stays mounted and still sends: real data of the page before the error.
 export function VitalsReporter() {
   useEffect(() => {
     // The page the visit loaded, before any client-side navigation (beacon.ts).

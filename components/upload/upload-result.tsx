@@ -7,7 +7,7 @@ import { Button } from "@/components/ui";
 import { focusRing } from "@/components/ui/styles";
 import { cn } from "@/lib/cn";
 
-// Step 3 once the file is up (M30–M32): a timeline uploaded → processed → ready, and what to do next.
+// Step 3 once the file is up: a timeline uploaded → processed → ready, and what to do next.
 
 export type ProcessingState = "processing" | "ready" | "failed";
 

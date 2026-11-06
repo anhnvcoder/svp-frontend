@@ -27,19 +27,15 @@ function remember(page: string) {
 // stamped with the time the gateway gave it (`fetchedAt`); the next pages come from /api/feed/<kind>. A feed is not
 // refetched behind the user's back (window focus, reconnect): that would reload every page and move the list under
 // the video being watched.
-//
-// The feed is dropped from the cache as soon as its screen leaves (gcTime 0). The page is dynamic, so every visit
-// renders a new first page on the server; `initialData` only seeds an empty cache, so a kept feed would hide that newer
-// page (likes made since, new videos) behind the old one. Without a kept feed, the server's page is always the one shown.
-//
-// Browser Back/Forward does not render the page again: the router replays the payload it kept from the first visit, so
-// the page it hands over can be old, even a second old with a like made on it since. Such a page carries a stamp this
-// tab has already shown: it starts stale, and React Query fetches the first page again in the background, which
-// replaces the old one. A stamp not seen yet is a new server render: it counts as fresh from the mount, so it is not
-// asked for twice. Back can come before React Query's timer has dropped the feed the screen left (a few ms after a tab
-// switch): the screen then reads that feed, still fresh, and `initialData` does not apply; a replay therefore always
-// fetches on mount, whatever the cache holds.
-//
+
+// The feed is dropped from the cache as soon as its screen leaves (gcTime 0): `initialData` only seeds an empty cache,
+// so a kept feed would hide the newer first page every visit renders on the server (likes made since, new videos).
+
+// Browser Back/Forward replays the payload the router kept, so the page can be old, even a second old with a like
+// made on it since. A page whose stamp this tab has already shown starts stale and is fetched again in the background;
+// a stamp not seen yet is a new server render and counts as fresh. A replay always fetches on mount.
+// Design notes: docs/architecture.md.
+
 // `enabled` false holds the first request: the server was told to wait (429) and the client waits out the rest.
 export function useFeed(
   kind: FeedKind,

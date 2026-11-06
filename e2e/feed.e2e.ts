@@ -5,7 +5,6 @@ import { authedTest, expect, feedItem, logIn, playingVideo, registerAccount, tes
 // the last video while the next page loads, and like state across browser Back (features/feed/feed-screen.tsx,
 // features/feed/use-feed.ts).
 
-// The explore feed's requests for a page after the first.
 function isNextPageRequest(url: URL): boolean {
   return url.pathname === "/api/feed/explore" && url.searchParams.has("cursor");
 }
@@ -32,11 +31,9 @@ authedTest(
     const pageSize = await page.locator('[role="feed"] > article [data-part="video-host"]').count();
     expect(pageSize).toBeGreaterThan(2);
 
-    // One of the last two videos asks for the next page, which the route holds.
     await scrollTo(page, pageSize - 2);
     await expect.poll(() => nextPageRequests).toBe(1);
 
-    // The item after the last video shows the page loading and becomes the current one.
     const tail = feedItem(page, pageSize);
     await scrollTo(page, pageSize);
     await expect(tail.locator('[data-part="video-host"]')).toHaveCount(0);
@@ -44,7 +41,6 @@ authedTest(
     await page.waitForTimeout(500);
 
     release();
-    // The page arrives: the first new video takes the tail's place, is on screen and plays; no end screen.
     const firstNew = feedItem(page, pageSize);
     await expect(firstNew.locator('[data-part="video-host"]')).toHaveCount(1);
     await expect(playingVideo(firstNew)).toHaveCount(1);
@@ -70,9 +66,8 @@ authedTest("the first video plays with hls.js's transmuxer in a worker loaded fr
 
 // The next item's poster sits inside the browser's lazy-load margin, so it would download beside the current poster,
 // the page's largest paint. Its <img> renders only after the window's load event, which waits for the current poster;
-// the player's <video> for it waits for the current video to play (features/feed/player-pool.ts) and carries no poster
-// of its own, so it never fetches one either. The routes hold every poster and playlist so the test fixes the order of
-// the two, and it reads the page rather than resource timing.
+// the player's <video> for it waits for the current video to play (features/feed/player-pool.ts) and has no poster.
+// The routes hold every poster and playlist to fix the order of the two; the test reads the page, not resource timing.
 authedTest(
   "the next item's video waits for the current video to play, its poster for the load event",
   async ({ page }) => {
@@ -121,7 +116,6 @@ authedTest(
     await expect(feedItem(page, 1).locator("img")).toHaveCount(0);
     expect(new Set(posters)).toEqual(new Set([current]));
 
-    // The current poster arrives, the page loads, and the next item's <img> follows.
     releasePosters();
     await expect(feedItem(page, 1).locator("img")).toHaveAttribute("src", /\/thumbnail\.jpg$/);
   },

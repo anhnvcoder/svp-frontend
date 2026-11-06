@@ -8,7 +8,7 @@ import { sessionCookieName } from "./session";
 // /api/* for client components: the browser calls the web server with its session cookie, and the web server calls
 // the gateway with the session's access token. It is not an open proxy: only
 // the routes below pass, the gateway URL is built from GATEWAY_URL and the checked path, never from a string of the
-// client (WEB-7), and only the headers listed here go either way.
+// client, and only the headers listed here go either way.
 
 const id = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 // A handle as user-service stores it: the client sends
@@ -20,7 +20,7 @@ interface Route {
   pattern: RegExp;
   methods: readonly string[];
   query: readonly string[];
-  // Passes the browser's Idempotency-Key on: it makes a retry of one video creation safe (ADR-0043).
+  // Passes the browser's Idempotency-Key on: it makes a retry of one video creation safe.
   idempotencyKey?: true;
 }
 

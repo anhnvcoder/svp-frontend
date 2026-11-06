@@ -1,8 +1,8 @@
 import { reloadOnceOnSkew } from "./skew-reload";
 
-// Error reports of the browser. No Sentry SDK in the
-// browser bundle: a small report goes to the app's own POST /monitoring, and the server builds the event, scrubs it
-// and sends it to GlitchTip. The browser knows no DSN and sends no cookie.
+// Error reports of the browser. No Sentry SDK in the browser bundle: a small report goes to the app's own
+// POST /monitoring, and the server builds the event, scrubs it and sends it to GlitchTip. The browser knows no DSN and
+// sends no cookie.
 
 // Reports per page load; a loop that throws costs at most this many requests.
 const maxReports = 10;

@@ -1,9 +1,9 @@
 import { unstable_isUnrecognizedActionError } from "next/navigation";
 
 // A page of one build talking to a server of another (a canary, a tab opened before a release) gets two errors Next
-// does not recover from by itself: a chunk only the
-// other build has (404), and a Server Action id the other build does not know (409, UnrecognizedActionError). Loading
-// the page again fetches the current build's HTML and chunks; the action had not run, so sending it again is safe.
+// does not recover from by itself: a chunk only the other build has (404), and a Server Action id the other build does
+// not know (409, UnrecognizedActionError). Loading the page again fetches the current build's HTML and chunks; the
+// action had not run, so sending it again is safe.
 
 // Turbopack's runtime raises this for a JS or CSS chunk it could not load, a dynamic import() included.
 function isChunkLoadError(error: unknown): boolean {

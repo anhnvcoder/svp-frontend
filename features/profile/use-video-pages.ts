@@ -3,6 +3,8 @@ import { useState } from "react";
 import { retryDelay, shouldRetry } from "@/features/feed/api";
 import { fetchMyVideos, fetchUserVideos, type ProfileVideoPage } from "./api";
 
+// Design notes: docs/architecture.md.
+
 // While a video of the list may still change by itself (needsRefresh), "My videos" asks for the list again this often,
 // so the status changes and the thumbnail appears without a reload.
 export const refreshIntervalMs = 5000;
@@ -11,16 +13,10 @@ export const refreshIntervalMs = 5000;
 // file any more: an UPLOADING video only waits for the clean-up job, which turns it FAILED within about an hour.
 export const uploadFormLifetimeMs = 15 * 60 * 1000;
 
-// Whether the list may still change by itself, so it is worth asking again:
-//   - a PROCESSING video turns READY or FAILED within minutes;
-//   - an UPLOADING video this tab is uploading (awaitedIds) turns PROCESSING once the file is up. The tab keeps its id
-//     from the form until processing ends, so a list asked just after completing, which may still say UPLOADING, is
-//     asked again;
-//   - any other UPLOADING video (another tab or device) can still be sent while its form lasts, counted from
-//     created_at. After that it was given up (cancelled, tab closed, form replaced) and asking every 5 s until the
-//     clean-up job would go on for an hour. created_at is the server's clock and now the browser's: a clock a few
-//     minutes off only moves when the asking stops;
-//   - a video this tab uploads that the pages loaded do not hold yet.
+// Whether the list may still change by itself, so it is worth asking again: a PROCESSING video, a video this tab
+// uploads (awaitedIds; a list asked just after completing may still say UPLOADING) and an UPLOADING video of another
+// tab or device while its form lasts, counted from created_at. After that it was given up, and asking every 5 s
+// until the clean-up job would go on for an hour.
 export function needsRefresh(
   pages: readonly ProfileVideoPage[] | undefined,
   awaitedIds: readonly string[],
@@ -53,11 +49,8 @@ type Options = {
 
 // A profile's videos, page by page along `next_cursor`. The server renders the first page; the next ones come from
 // /api/me/videos or /api/users/<id>/videos. The list is dropped from the cache when its page leaves (gcTime 0), so
-// each visit shows the server's newer page rather than a kept one.
-//
-// "My videos" asks again every refreshIntervalMs while needsRefresh, and stops once it is not. React Query
-// skips the interval while the tab is hidden and asks again when the tab comes back; a request still running is never
-// doubled, it is the one the next tick waits for.
+// each visit shows the server's newer page rather than a kept one. "My videos" asks again every refreshIntervalMs
+// while needsRefresh.
 export function useVideoPages({ list, userId, initialPage, enabled, awaitedIds = [] }: Options) {
   // Read once, when the screen mounts: the server's page is fresh then.
   const [initialDataUpdatedAt] = useState(() => Date.now());

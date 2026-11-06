@@ -1,31 +1,26 @@
 #!/usr/bin/env bash
-# The two copies of the backend repository (anhnvcoder/svp-backend) this repository reads, never writes, and
-# the backend commit staging runs:
-#
-#   backend.sh dir       prints the backend whose harness the end-to-end runs, measurements and source map uploads use:
-#                        the compose stack and cluster svp it runs, deploy/compose/lib.sh and deploy/k8s/lib.sh (users,
-#                        uploads, the reset of the register rate limit), its .env and .k8s/ca.crt. SVP_BACKEND_DIR when
-#                        set (CI sets it to the checkout of its step); otherwise <workspace>/backend, where <workspace>
-#                        holds the main checkout of this repository (the parent of the folder of git's common directory,
-#                        the same from a worktree). Its working tree is read as it is; nothing is cloned, fetched or
-#                        switched there. A folder that is no clone of the backend fails, printing the command that makes
-#                        one: no other copy is ever read in its place.
+# The two copies of the backend repository (anhnvcoder/svp-backend) this repository reads, never writes, and the backend
+# commit staging runs. Usage: backend.sh dir|checkout|stg-revision|stg-check.
+# Design notes: README.md.
+
+#   backend.sh dir       prints the backend whose harness the end-to-end runs, measurements and source map uploads use
+#                        (compose stack, cluster svp, deploy/compose/lib.sh, deploy/k8s/lib.sh, .env, .k8s/ca.crt):
+#                        SVP_BACKEND_DIR when set, otherwise <workspace>/backend. Its working tree is read as it is;
+#                        a folder that is no clone of the backend fails, printing the command that makes one.
+
 #   backend.sh checkout  makes .backend/ (gitignored) a checkout of the backend at the commit of .backend-commit, the one
-#                        place that pins it: the scripts of its deploy/ci/ (scan gate, platform adapter), the tools its
-#                        Makefile pins by digest and its table of release sources (the identity a contract is signed
-#                        with) are read there, the same on a machine and in CI. A checkout already at that commit is
-#                        left as it is (CI may check it out itself); another commit is fetched (that one commit only,
-#                        anonymously) and checked out detached. Refuses a folder with uncommitted changes or one that is
-#                        no clone of the backend instead of overwriting it.
+#                        place that pins it. A checkout already at that commit is left as it is (CI may check it out
+#                        itself); another commit is fetched (that one only, anonymously) and checked out detached.
+#                        Refuses a folder with uncommitted changes or one that is no clone of the backend.
+
 #   backend.sh stg-revision
-#                        prints the backend commit staging runs, one full commit SHA and nothing else on stdout: revision
-#                        of envs/stg/charts.yaml in the clone of svp-gitops (anhnvcoder/svp-gitops, the deployment
-#                        configuration), SVP_GITOPS_DIR when set, otherwise <workspace>/gitops. Its working tree is read
-#                        as it is, like the backend's: nothing is cloned, fetched or switched there, and a folder that is
-#                        no clone of svp-gitops fails, printing the command that makes one.
+#                        prints the backend commit staging runs, one full commit SHA and nothing else on stdout:
+#                        revision of envs/stg/charts.yaml in the clone of svp-gitops (SVP_GITOPS_DIR when set,
+#                        otherwise <workspace>/gitops), read as it is; a folder that is no clone of svp-gitops fails.
+
 #   backend.sh stg-check fails unless the backend of `backend.sh dir` is checked out at that commit and can run the
-#                        releases of staging (make up IMAGES=stg there): a backend older than that mode ignores IMAGES and
-#                        builds its six services from source, which is not the backend staging runs.
+#                        releases of staging (make up IMAGES=stg there): a backend older than that mode ignores IMAGES
+#                        and builds its six services from source, which is not the backend staging runs.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd -P)

@@ -2,6 +2,8 @@ import { isAbsolute, join } from "node:path";
 import { defineConfig, devices, type ReporterDescription } from "@playwright/test";
 import { stack } from "./e2e/stack";
 
+// Design notes: README.md.
+
 // SVP_E2E_EVIDENCE=<absolute folder> turns the run into one a person can review afterwards: trace, video and (Chromium
 // only, see the webkit project) a final screenshot of every test, an HTML report (<folder>/report) and a JSON one
 // (<folder>/results.json), the artefacts under <folder>/artifacts, and e2e/evidence.e2e.ts, which takes full-page
@@ -37,25 +39,23 @@ const webkit = {
   // screenshot, which the app's CSP refuses and the CSP watcher of e2e/fixtures.ts reports as a failure. The trace and
   // the video still record every WebKit test.
   ...(evidence ? { screenshot: "off" as const } : {}),
-  // On Linux (CI's runner) Playwright's WebKit is WebKitGTK, which plays media through GStreamer and
-  // suspends the pipeline of a muted <video> that is not in the viewport. A Media Source pipeline suspended that way
-  // fails its next push ("Failed to push buffer", MEDIA_ERR_SRC_NOT_SUPPORTED); hls.js resets it three times and gives
-  // up, so the feed's preloaded next item, and now and then a current one created before it was laid out, ends in
-  // data-state="error". Safari, which these runs stand in for, has no such suspend. This variable of WebKitGTK turns
-  // it off; Playwright passes `env` to the browser instead of process.env, hence the spread. macOS WebKit ignores it.
+  // On Linux (CI's runner) Playwright's WebKit is WebKitGTK, which suspends the GStreamer pipeline of a muted <video>
+  // not in the viewport; its next push then fails, hls.js gives up and the feed's preloaded next item ends in
+  // data-state="error". Safari, which these runs stand in for, has no such suspend. This variable turns it off;
+  // Playwright passes `env` to the browser instead of process.env, hence the spread. macOS WebKit ignores it.
   launchOptions: { env: { ...process.env, WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS: "1" } },
 };
 
-// Tests tagged @publishes make a video READY, and the newest READY video leads Explore. Other tests expect the WEB-1
-// video of e2e/seed.sh to lead it, so the publishing tests run in projects of their own, listed last: with one worker,
-// Playwright runs the projects one after the other in this order, so both browsers have run every other test first.
+// Tests tagged @publishes make a video READY, and the newest READY video leads Explore. Other tests expect the
+// HTML-title video of e2e/seed.sh to lead it, so the publishing tests run in projects of their own, listed last: with
+// one worker, Playwright runs the projects one after the other in this order, so both browsers have run every other
+// test first.
 const publishes = /@publishes/;
 
-// End-to-end tests of the web client on the compose stack of `make up` (`make e2e`, `make measure-web`): the
-// browser opens the `web` container at http://localhost:3001, the origin its CSRF check and cookie form expect.
-// With SVP_STACK=k3d (`make k8s-e2e`) the same tests, on both
-// browsers, open the web of cluster svp at https://svp.localhost:8443 instead (e2e/stack.ts). e2e/global-setup.ts
-// seeds the videos through the gateway first.
+// End-to-end tests of the web client on the compose stack of `make up` (`make e2e`, `make measure-web`): the browser
+// opens the `web` container at http://localhost:3001, the origin its CSRF check and cookie form expect. With
+// SVP_STACK=k3d (`make k8s-e2e`) the same tests, on both browsers, open the web of cluster svp at
+// https://svp.localhost:8443 instead (e2e/stack.ts). e2e/global-setup.ts seeds the videos through the gateway first.
 export default defineConfig({
   testDir: "./e2e",
   // Not *.test.ts or *.spec.ts: those names belong to the unit tests of vitest.config.ts.
@@ -74,8 +74,8 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   // CI (GitHub Actions sets CI) runs a failed test up to twice more, on a shared runner where a slow moment can fail
-  // one; the list reporter marks a test that passed only on a retry as flaky. The measurements (upload, first frame) always
-  // run once: a retry would measure a second run. On this machine a failure shows at once.
+  // one; the list reporter marks a test that passed only on a retry as flaky. The measurements (upload, first frame)
+  // always run once: a retry would measure a second run. On this machine a failure shows at once.
   retries: process.env.CI && !measureUpload && !measureWeb ? 2 : 0,
   forbidOnly: true,
   timeout: 60_000,

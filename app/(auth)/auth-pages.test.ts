@@ -36,7 +36,7 @@ describe("login and register pages", () => {
       searchParams: params({ next: "//evil.example" }),
     });
     expect(element.type).toBe(AuthForm);
-    // The action checks next (WEB-4); the page only fills the hidden field and never redirects to it.
+    // The action checks next; the page only fills the hidden field and never redirects to it.
     expect(element.props).toEqual({ mode: "register", action: registerAction, next: "//evil.example" });
   });
 

@@ -4,23 +4,20 @@ import { join } from "node:path";
 import { authedTest, backendDir, expect, feedItem, testResultsDir } from "./fixtures";
 import { stack } from "./stack";
 
-// A browser error of the real bundle reaches GlitchTip with its stack mapped to the source.
-// Only with SVP_E2E_GLITCHTIP=1
-// (playwright.config.ts), on a stack whose GlitchTip holds the source maps of the build the web serves: compose `make
-// up OBS=lgtm` then `make sourcemaps`, or k3d `make k8s-sourcemaps` then `make k8s-e2e`.
-//
+// A browser error of the real bundle reaches GlitchTip with its stack mapped to the source. Only with
+// SVP_E2E_GLITCHTIP=1 (playwright.config.ts), on a stack whose GlitchTip holds the source maps of the build the web
+// serves: compose `make up OBS=lgtm` then `make sourcemaps`, or k3d `make k8s-sourcemaps` then `make k8s-e2e`.
+// Design notes: docs/architecture.md.
+
 // The error comes from no debug path of the app: the next page of Explore is answered with one item whose title is an
-// object instead of text, and React, rendering that title, throws to the error boundary of app/error.tsx, which reports
-// it through POST /monitoring. Every client call of the app checks the fields it uses itself and catches what fails, so
-// a malformed answer cannot make the app's own code throw; the frames are React's, mapped to its source under
-// node_modules of the web project.
-//
+// object instead of text, and React rendering it throws to the error boundary of app/error.tsx, which reports it
+// through POST /monitoring. The app's client calls check the fields they use, so a malformed answer cannot make its
+// own code throw; the frames are React's.
+
 // The GlitchTip API is read with the read-only token (event:read, project:read), never printed: compose takes
-// SENTRY_AUTH_TOKEN of the backend's .env (read with its deploy/observability/glitchtip/dotenv.sh), k3d gets the token of Secret
-// svp-obs/glitchtip-api from e2e/k3d-e2e.sh in SVP_E2E_GLITCHTIP_TOKEN. GlitchTip is on 127.0.0.1:8000 on both:
-// compose publishes it there, e2e/k3d-e2e.sh opens a port-forward there for the run. Each browser's event, once found,
-// goes to test-results/glitchtip-<project>.json (with the environment GlitchTip holds for it), the run's record of
-// what GlitchTip received.
+// SENTRY_AUTH_TOKEN of the backend's .env, k3d gets the token of Secret svp-obs/glitchtip-api from e2e/k3d-e2e.sh in
+// SVP_E2E_GLITCHTIP_TOKEN. GlitchTip is on 127.0.0.1:8000 on both. Each browser's event, once found, goes to
+// test-results/glitchtip-<project>.json, the run's record of what GlitchTip received.
 
 const glitchtipURL = "http://127.0.0.1:8000";
 // Organization and project that GlitchTip's bootstrap creates on both stacks.

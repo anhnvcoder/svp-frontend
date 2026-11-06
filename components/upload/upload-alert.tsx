@@ -2,8 +2,7 @@ import { CircleAlert, TriangleAlert, WifiOff } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-// The alert box at the top of an upload step (M21–M24, M27, M29). Danger for what stops the upload, warning for what
-// the user may wait out.
+// The alert box at the top of an upload step. Danger for what stops the upload, warning for what the user may wait out.
 
 const tones = {
   danger: { box: "bg-danger-surface", icon: "text-danger", Icon: CircleAlert },

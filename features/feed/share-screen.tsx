@@ -45,8 +45,7 @@ const toastMs = 5000;
 const headerLink =
   "inline-flex min-h-11 items-center rounded-md px-3 text-[15px] font-semibold text-foreground hover:bg-surface-hover hover:text-foreground md:px-4.5";
 
-// The share page /v/{id} (design/SVP Mobile.dc.html
-// M38, SVP Desktop.dc.html D04): one video played by the feed's player pool, its author, title and counts. A guest's
+// The share page /v/{id}: one video played by the feed's player pool, its author, title and counts. A guest's
 // like and follow ask them to log in and come back here, and their watching records no view; a logged-in user likes,
 // follows and records a view after 2 s of playback as in the feed.
 export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }: ShareScreenProps) {
@@ -291,7 +290,7 @@ export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }:
           />
         </div>
 
-        {/* Wide screens: the author, title and actions beside the video (D04); on small ones they are over it. */}
+        {/* Wide screens: the author, title and actions beside the video; on small ones they are over it. */}
         <aside className="hidden w-80 flex-col gap-6 md:flex lg:w-95">
           <div className="flex items-center gap-3.5">
             <Avatar seed={video.author_id} name={authorName} className="size-13" />
