@@ -1,40 +1,11 @@
-# The web image of this repository, ghcr.io/anhnvcoder/svp-frontend/web: built at every run from the whole tree, on native
-# amd64 and arm64 runners; the local image scanned with trivy, and its SBOM with grype, blocking secrets and CRITICAL
-# vulnerabilities BEFORE anything is pushed; exactly what was scanned pushed; a multi-arch index joined, signed keyless
-# with cosign, attested with the SBOM (syft) and the scan result, then with the build provenance (actions/attest), all
-# as Sigstore bundles; the signed digest promoted to stg through a pull request in the deployment repository
-# svp-gitops; released digests rescanned daily.
-#
-# Building, scanning, pushing, joining and signing are the backend's composite actions image-leg, image-index and
-# image-sign, the same ones the backend's images.yml calls, here as ./.backend/.github/actions/<name>: .backend/ is the
-# backend checked out at the commit of .backend-commit (make backend-checkout), the one place this repository pins
-# it, so the actions, their guards (deploy/ci/image-guard.sh beside them) and the tool images the backend's Makefile
-# pins by digest move together with one pin. Their input code-root, and SVP_CODE_ROOT (below) for the backend's scripts
-# this file runs (deploy/ci/plan.sh, deploy/ci/rescan.sh), tell them that the code built and released is this
-# checkout, not the backend's: they take the release source whose repository is this one
-# (deploy/helm/svp-policy/files/sources.json of .backend/), push under its prefix, sign with its identity, and refuse
-# to run when HEAD here is not the commit of the run. The steps of a composite action run in the calling job, so the
-# keyless certificate and the build provenance name this workflow, the identity of release source web. Job promote is
-# the exception: its step, here, writes the image block of web in svp-gitops and opens the pull request with gh, with
-# three helpers of the backend's deploy/ci/common.sh (yq_, the yq the backend's Makefile pins by digest;
-# promote_open_pr; promote_image_row, the row of the pull request's table). This file wires jobs, permissions and
-# artifacts.
-#
-# Security rules of this file:
-#   - permissions: {} here, and each job declares only what it needs. Every job that runs on a pull request has only
-#     contents: read: a pull request runs its own code (and the scripts of the backend commit it pins) before anyone
-#     has read them. Jobs that can write (packages, id-token, attestations, security-events) run only on main, outside
-#     pull_request.
-#   - Only job promote writes to another repository: environment promote (deployment branch main only) holds the key
-#     of the GitHub App svp-web-promoter, installed on svp-gitops alone, and the job turns it into a token of one hour
-#     for svp-gitops with contents and pull-requests write only, revoked when the job ends. No job of a pull request
-#     names that environment or reads a secret.
-#   - Every action is pinned to a full commit SHA (the tag in the comment is for people and Renovate); only GitHub's
-#     own actions, sigstore/cosign-installer and the backend's composite actions under .backend/.github/actions/,
-#     pinned by .backend-commit (they call only GitHub's own actions, at the SHAs they pin).
-#   - Untrusted values (inputs, branch names, matrix values from plan) reach scripts through env:, never ${{ }} inside
-#     run:.
-#   - actions/checkout never keeps the token in .git/config: no job pushes to this repository.
+# The web image of this repository: built, scanned and gated BEFORE anything is pushed, pushed as scanned, signed and
+# attested keyless, promoted to stg through a pull request in svp-gitops, rescanned daily. Build, scan, join and sign
+# are the backend's composite actions (./.backend/.github/actions/<name>, pinned by .backend-commit); their steps run
+# in the calling job, so the signature and provenance name this workflow. Public repository, so: no pull_request_target
+# or workflow_run; permissions: {} with each job declaring its own, pull request jobs only contents: read, write jobs
+# only on main; actions pinned to a full commit SHA, checkout without a persisted token; untrusted values reach scripts
+# through env:, never ${{ }}.
+# Design notes: README.md.
 name: images
 
 on:
@@ -42,8 +13,8 @@ on:
   push:
     branches: [main]
   schedule:
-    # Daily rescan, off the top of the hour (busy for GitHub's scheduler) and not at the backend's minute. Kyverno
-    # accepts an attestation for 72 hours, so two missed days are still fine.
+    # Off the hour (busy for GitHub's scheduler) and not at the backend's minute; Kyverno accepts an attestation for 72
+    # hours, so two missed days are still fine.
     - cron: "47 1 * * *"
   workflow_dispatch:
     inputs:
@@ -64,18 +35,16 @@ env:
 
 # One group per ref and mode: the scheduled rescan also runs on refs/heads/main, and sharing the build's group would
 # let it replace a queued push run. A run on main is never cancelled: cancelling one half-way through signing would
-# leave a pushed digest without its signature. Runs on main follow each other, so a later run never promotes before
-# an earlier one, and job promote never moves stg back to an older commit either way.
+# leave a pushed digest without its signature.
 concurrency:
   group: images-${{ github.ref }}-${{ (github.event_name == 'schedule' || inputs.rescan) && 'rescan' || 'build' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   plan:
-    # What this run does (deploy/ci/plan.sh): mode (build or rescan), images, matrix of legs. In this tree every build
-    # builds web, with no base to compare with: the whole tree is its code. Every job after it starts its if: with a
-    # status function (!cancelled() && ...): an if: without one gets an implicit success(), false once a job up the
-    # needs chain was skipped.
+    # What this run does (deploy/ci/plan.sh): mode (build or rescan), images, matrix of legs; every build builds web.
+    # Every job after it starts its if: with !cancelled() &&: an if: without a status function gets an implicit
+    # success(), false once a job up the needs chain was skipped.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -131,10 +100,9 @@ jobs:
           out: ${{ runner.temp }}/leg
 
   build:
-    # main: the same build, scan and gate, then push exactly the scanned image (by config digest) and hand the leg to
-    # the jobs after it as the artifacts leg-<image>-<arch> and sarif-<image>-<arch> (action image-leg). A blocked image
-    # stops the leg before the push. The caches of the trivy and grype DBs are the only shared state, and no job holding
-    # id-token uses them.
+    # main: the same build, scan and gate, then push exactly the scanned image (by config digest) and hand the leg on as
+    # artifacts. A blocked image stops the leg before the push. The trivy and grype DB caches are the only shared state,
+    # and no job holding id-token uses them.
     needs: plan
     if: >-
       ${{ !cancelled() && needs.plan.result == 'success'
@@ -160,7 +128,6 @@ jobs:
           out: ${{ runner.temp }}/leg
 
   merge:
-    # One index per image from its two scanned manifests, handed on as the artifact index-<image> (action image-index).
     # An image with a failed leg has no two artifacts and fails here: no index, no signature, no release.
     needs: [plan, build]
     if: >-
@@ -185,15 +152,10 @@ jobs:
           out: ${{ runner.temp }}/merge
 
   sign:
-    # Keyless signature on the index digest, SBOM attestation on each manifest and vuln attestation (both scans) on the
-    # index, as Sigstore bundles, with the cosign the backend's Makefile pins; then the build provenance (SLSA v1, built
-    # by actions/attest from the claims of this run's OIDC token) on the index, after the signature and the vuln
-    # attestation (action image-sign). The action refuses to sign unless the run's workflow is the subject of this
-    # repository's release source (images.yml on refs/heads/main), the identity Kyverno admits for web from here, and
-    # writes each bundle only when the digest has none of its type (a run started again signs nothing twice). The only
-    # build-path job with id-token: write, and the only one with attestations: write (the provenance also goes to the
-    # repository's attestations); it uses no cache. Its artifact release-<image> (repository, tag, digest of the signed
-    # index) is what promote writes to envs/stg/images/ of svp-gitops.
+    # The action refuses to sign unless the run's workflow is the subject of this repository's release source
+    # (images.yml on refs/heads/main), the identity Kyverno admits for web from here, and writes a bundle only when the
+    # digest has none of its type (a run started again signs nothing twice). The only build-path job with id-token:
+    # write and attestations: write; it uses no cache.
     needs: [plan, merge]
     if: >-
       ${{ !cancelled() && needs.plan.outputs.mode == 'build' && needs.plan.outputs.has_images == 'true'
@@ -219,15 +181,10 @@ jobs:
           out: ${{ runner.temp }}/sign
 
   promote:
-    # Promotes web to stg in svp-gitops: rebuilds its branch bot/promote-stg-web as one commit of the app's bot on top
-    # of main there, with the image block of envs/stg/images/web.yaml set to the release this run signed (the file's
-    # comments kept), opens or updates its pull request and turns on auto-merge; svp-gitops merges it once its check
-    # gitops-ok is green, with no review (no code owner owns envs/stg/). Never writes envs/stg/charts.yaml: the charts
-    # are the backend's. Runs when signing failed too, and then promotes nothing. Runs of main follow each other (the
-    # concurrency group of builds never cancels), so a later run never promotes before an earlier one; the step
-    # refuses a run whose commit is older than the release of web that main of svp-gitops or the open pull request
-    # names (a run started again, a dispatch of an old commit), commits compared by ancestry, never by time. The token
-    # is the app's, for svp-gitops alone; GITHUB_TOKEN only reads this repository. No id-token, no packages.
+    # Promotes web to stg in svp-gitops: a bot commit on bot/promote-stg-web, a pull request with auto-merge once
+    # gitops-ok is green (no code owner owns envs/stg/); never envs/stg/charts.yaml, the charts are the backend's.
+    # Environment promote (main only) holds the key of the App on svp-gitops alone, a one-hour token; no pull request
+    # job names it. The step refuses a run older than the release stg names (by ancestry), so stg never moves back.
     needs: [plan, sign]
     if: >-
       ${{ !cancelled() && needs.plan.outputs.mode == 'build' && needs.plan.outputs.has_images == 'true'
@@ -265,11 +222,9 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          # yq_ (the yq of YQ_IMAGE, pinned by digest in the backend's Makefile, run without network: the yq
-          # preinstalled on the runner changes with the runner image, unseen, and this step writes the deployment
-          # repository), promote_open_pr (the open pull request of the app from a branch, never a fork's; a gh that
-          # fails, or a list too long to trust, fails) and promote_image_row (the row of the table in the pull
-          # request's body). Sourcing it only defines things.
+          # yq_ runs the yq of YQ_IMAGE (digest-pinned in the backend's Makefile) without network: the runner's own yq
+          # changes unseen with the runner image, and this step writes the deployment repository. Also promote_open_pr
+          # and promote_image_row (the row of the pull request's table). Sourcing it only defines things.
           . .backend/deploy/ci/common.sh
           # After the source: its own fail would print no annotation.
           fail() { echo "::error::$*" >&2; exit 1; }
@@ -368,16 +323,10 @@ jobs:
           gh pr merge "$now" --repo "$repo" --auto --squash --match-head-commit "$(git rev-parse HEAD)"
 
   rescan:
-    # Daily (and on dispatch rescan=true): every web digest of this repository that svp-gitops names (envs/*/images/ at
-    # its main and at the open pull request bot/promote-stg-web) is scanned again, manifest by manifest, and its vuln
-    # attestation replaced with the real result, signed with this workflow's identity (in the format the digest is
-    # signed in; for a Sigstore bundle the older vuln bundles are taken off with packages: write); a CRITICAL is
-    # recorded first, then fails the job, which mails the owner; a secret fails the job before anything is attested
-    # (deploy/ci/rescan.sh). Releases of the backend are left to the backend's own rescan: --source web makes the script
-    # check that this run is of this repository's release source and its signing workflow before it reads anything, so
-    # it never replaces an attestation of another repository's release. svp-gitops is cloned anonymously and its files
-    # read as data, never run; GITHUB_TOKEN only asks whether the promote pull request is open (a read of a public
-    # repository). No cache: the job holds id-token.
+    # Every web digest svp-gitops names is scanned again, manifest by manifest, and its vuln attestation replaced with
+    # the real result; a CRITICAL is recorded first, then fails the job; a secret fails it before anything is attested.
+    # --source web makes rescan.sh check that this run is of this repository's release source before it reads anything,
+    # so it never replaces another repository's attestation. svp-gitops is read as data, never run. No cache: id-token.
     needs: plan
     if: >-
       ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.mode == 'rescan'
@@ -415,10 +364,9 @@ jobs:
           retention-days: 7
 
   sarif:
-    # Uploads the SARIF of main's builds and rescans to the Security tab, one upload per tool (upload-sarif merges the
-    # files it is given into one log, and GitHub rejects a log with more than 20 runs). The only job with
-    # security-events: write; it runs no code of the repository. A report, not a check: not in images-ok (a failed
-    # upload still turns the run red).
+    # One upload per tool (upload-sarif merges the files it is given into one log, and GitHub rejects a log with more
+    # than 20 runs). The only job with security-events: write; it runs no code of the repository. A report, not a
+    # check: not in images-ok (a failed upload still turns the run red).
     needs: [plan, build, rescan]
     if: >-
       ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -434,9 +382,8 @@ jobs:
           pattern: sarif-*
           path: ${{ runner.temp }}/sarif
       - id: split
-        # Sorts the files into one directory per tool and counts the runs with the runner's jq, so that a log over the
-        # limit stops here with its count instead of GitHub's rejection. A tool over the limit is not uploaded; the
-        # other one still is.
+        # Per tool, counts the runs with the runner's jq: a log over the limit stops here with its count instead of
+        # GitHub's rejection, and the other tool is still uploaded.
         run: |
           mkdir -p "$RUNNER_TEMP/sarif-trivy" "$RUNNER_TEMP/sarif-grype"
           while IFS= read -r -d '' f; do
@@ -483,9 +430,8 @@ jobs:
 
   images-ok:
     # The required check of this workflow. Green only when every job succeeded or was skipped for a reason this job
-    # recomputes from the event, the ref and plan's outputs: a skip from a wrong if: is red, and so are failure and
-    # cancelled. Never skipped itself (GitHub counts a skipped required check as passed). Needs no permission and runs
-    # no code of the repository.
+    # recomputes from the event, the ref and plan's outputs: a skip from a wrong if: is red. Never skipped itself
+    # (GitHub counts a skipped required check as passed).
     needs:
       - plan
       - build-nopush
