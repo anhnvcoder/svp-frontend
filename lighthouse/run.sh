@@ -15,8 +15,8 @@
 # is still found in a result or a report, and the session is logged out at exit so the cookie stops working.
 
 # LOCAL LAB ONLY: sourcing deploy/compose/lib.sh of the backend deletes the gateway's register rate limit keys
-# (svp:gw:rl:register:*) in Redis db 10 on 127.0.0.1:6379 with SCAN + DEL, as e2e/seed.sh and the backend's
-# `make smoke` do. Never point it at a shared stack.
+# (svp:gw:rl:register:*) in Valkey db 10 of the stack with SCAN + DEL through the backend's svp-valkey, as
+# e2e/seed.sh and the backend's `make smoke` do. Never point it at a shared stack.
 set -euo pipefail
 
 base=http://127.0.0.1:8080

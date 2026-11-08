@@ -63,7 +63,7 @@ Quy ước chung (ngôn ngữ, tài liệu timeless, ADR, comment, Git, repo pub
 
 ## An toàn database
 
-Chỉ dùng Redis local `127.0.0.1:6379`, luôn ghi rõ port (`redis-cli -p 6379 -n 15`):
+Từ máy dev chỉ dùng Redis local `127.0.0.1:6379`, luôn ghi rõ port (`redis-cli -p 6379 -n 15`):
 
 | Dùng cho | Redis db |
 | --- | --- |
@@ -74,8 +74,10 @@ Chỉ dùng Redis local `127.0.0.1:6379`, luôn ghi rõ port (`redis-cli -p 6379
   của `127.0.0.1:6379` hay `localhost:6379`, mỗi test một tiền tố khoá ngẫu nhiên `svp:test:<hex>:` và chỉ xoá khoá của tiền tố đó;
   thiếu biến thì nhóm test Redis bị bỏ qua. Request mạng không có handler MSW thì test lỗi.
 - Không `FLUSHDB`/`FLUSHALL`, kể cả ở db 15. Redis db 0, 5 và 7 chứa dữ liệu của dự án khác: không dùng.
-- **LOCAL LAB ONLY:** e2e và Lighthouse xoá khoá `svp:gw:rl:register:*` ở db 10 (gateway của stack compose) hay Valkey db 10 của cluster,
-  bằng `SCAN` + `DEL` qua script của backend; không trỏ chúng vào stack dùng chung.
+- Web trong compose và k3d của backend không dùng Redis native mà dùng Valkey của stack (TLS, user `svp-web`, db 9); `make dev` và
+  test vẫn dùng Redis native như bảng trên.
+- **LOCAL LAB ONLY:** e2e và Lighthouse xoá khoá `svp:gw:rl:register:*` ở Valkey db 10 (gateway của stack compose hay của cluster),
+  bằng `SCAN` + `DEL` qua `svp-valkey` của backend (user `svp-ops`); không trỏ chúng vào stack dùng chung.
 - Không có database nào khác: web không đọc Postgres; dữ liệu đi qua gateway.
 
 ## An toàn cloud

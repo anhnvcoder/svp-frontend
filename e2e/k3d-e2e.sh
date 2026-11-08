@@ -9,8 +9,8 @@
 # 127.0.0.1:8000 that lives as long as the run, stopped by its pid however the run ends.
 
 # LOCAL LAB ONLY, like make e2e: e2e/seed.sh and every Playwright worker delete the gateway's register rate limit
-# keys (svp:gw:rl:register:*) in Valkey db 10 of the cluster (kubectl exec, context k3d-svp). Never point it at a
-# shared cluster.
+# keys (svp:gw:rl:register:*) in Valkey db 10 of the cluster (svp-valkey in Deployment svp-ops, context k3d-svp). Never
+# point it at a shared cluster.
 set -euo pipefail
 
 # The harness of the backend whose cluster this run talks to (scripts/backend.sh dir: SVP_BACKEND_DIR or

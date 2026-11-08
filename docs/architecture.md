@@ -241,8 +241,8 @@ dùng chung các bucket theo IP của gateway: đăng ký (burst 20 mỗi giờ)
   compose; việc đặt lại trước test đầu tiên của mỗi worker giữ nó dưới burst.
 
 **LOCAL LAB ONLY:** trước test đầu tiên của mỗi worker (mỗi project một worker, và một worker mới sau một test lỗi), các khoá rate limit
-đăng ký của gateway (`svp:gw:rl:register:*`) ở Redis db 10 trên `127.0.0.1:6379` (trên k3d: Valkey db 10 của cluster `svp`, qua
-`kubectl`, như `SVP_STACK=k3d` báo cho `lib.sh`) bị xoá bằng `SCAN` + `DEL`, bởi `reset_register_limit` của `deploy/compose/lib.sh`, như
+đăng ký của gateway (`svp:gw:rl:register:*`) ở Valkey db 10 của stack (trên k3d: của cluster `svp`, như `SVP_STACK=k3d` báo cho `lib.sh`) bị xoá bằng `SCAN` + `DEL` qua
+`svp-valkey` của backend (user `svp-ops`), bởi `reset_register_limit` của `deploy/compose/lib.sh`, như
 `e2e/seed.sh` và `make smoke` làm; bản thân giới hạn không được nâng lên. Không bao giờ trỏ lượt e2e vào stack dùng chung.
 
 ### Lỗi trình duyệt tới GlitchTip với stack đã ánh xạ

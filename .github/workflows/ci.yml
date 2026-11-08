@@ -296,9 +296,9 @@ jobs:
       - run: make docs-check
 
   # This pull request's web client end to end against the backend staging runs, the three repositories side by side as
-  # in the lab's workspace. Outside ci-ok: a red stack (a flaky end-to-end test, a Lighthouse threshold, a backend
-  # release staging has not settled) never blocks a merge. It runs the pull request's code with contents: read and no
-  # secret; its .env of random secrets is never printed or uploaded, and its Redis resets touch only the service below.
+  # in the lab's workspace. Outside ci-ok: a red stack (a flaky test, a Lighthouse threshold, an unsettled staging)
+  # never blocks a merge. It runs with contents: read and no secret; its .env of random secrets is never printed or
+  # uploaded, and its Valkey resets touch only this run's compose stack.
   stack:
     name: stack (end-to-end on the backend of staging, outside ci-ok)
     needs: changes
@@ -314,9 +314,10 @@ jobs:
       SVP_BACKEND_DIR: ${{ github.workspace }}/backend
       SVP_GITOPS_DIR: ${{ github.workspace }}/gitops
     services:
-      # The compose containers reach these as host.docker.internal, which compose's host-gateway maps to the gateway of
-      # Docker's default bridge (docker0, 172.17.0.1). So each is published on that address and on loopback (psql of
-      # the backend's Postgres bootstrap and redis-cli of the scripts run on the runner), never on every interface.
+      # The compose containers reach this as host.docker.internal, which compose's host-gateway maps to the gateway of
+      # Docker's default bridge (docker0, 172.17.0.1). So it is published on that address and on loopback (psql of the
+      # backend's Postgres bootstrap runs on the runner), never on every interface. Kafka and Valkey are containers of
+      # the compose stack.
       postgres:
         image: docker.io/library/postgres:15.19-trixie@sha256:c961aa287d8698297cb26cdfadfbe9fd2cbaf77e53cfffe9636e8d8a1e4d842c
         env:
@@ -326,17 +327,6 @@ jobs:
           - 172.17.0.1:5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-      # The gateway (db 10), feed-service (db 14) and the web's sessions (db 9) of this run only.
-      redis:
-        image: docker.io/library/redis:8.8.3-trixie@sha256:418e397fd48d66e450af13baab123397f2d2580b07ef310c3a5dbe96c3d731f1
-        ports:
-          - 127.0.0.1:6379:6379
-          - 172.17.0.1:6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -374,9 +364,9 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      # host-gateway is the gateway of the default bridge (unless the daemon sets host-gateway-ip), and the services
-      # above are published on 172.17.0.1: if the two differ, every compose service fails to reach Postgres and Redis
-      # with a timeout far from its cause. Said here, before anything is pulled or built.
+      # host-gateway is the gateway of the default bridge (unless the daemon sets host-gateway-ip), and Postgres
+      # above is published on 172.17.0.1: if the two differ, every compose service fails to reach Postgres with a
+      # timeout far from its cause. Said here, before anything is pulled or built.
       - run: make -C backend ci-bridge-check
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -393,7 +383,7 @@ jobs:
       - name: Install the tools of the scripts
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends postgresql-client redis-tools ffmpeg jq
+          sudo apt-get install -y -q --no-install-recommends postgresql-client ffmpeg jq
       - run: make -C backend env
       - run: make -C backend up IMAGES=stg WEB_FROM=clone
       - run: make -C backend smoke

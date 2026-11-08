@@ -7,7 +7,7 @@
 # The video is real and transcodes: 160 s of 1080p test pattern with noise at about 5 Mbit/s, so ~100 MB while staying
 # under the 180 s the web and media-worker accept. It is made in a temporary folder, removed at the end.
 
-# LOCAL LAB ONLY, like the e2e run (e2e/seed.sh resets the gateway's register rate limit in Redis db 10).
+# LOCAL LAB ONLY, like the e2e run (e2e/seed.sh resets the gateway's register rate limit in Valkey db 10).
 set -euo pipefail
 
 command -v ffmpeg >/dev/null || {
