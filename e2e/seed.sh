@@ -19,10 +19,10 @@
 # video, so the first of explore, and its author has no other video: following them fills the Following feed with
 # exactly that one.
 
-# LOCAL LAB ONLY: sourcing lib.sh deletes the gateway's register rate limit keys (svp:gw:rl:register:*) in Redis db 10
-# on 127.0.0.1:6379 (Valkey db 10 of the cluster on k3d) with SCAN + DEL, as `make smoke` does. The web's BFF reaches
-# the gateway from one container address, so every browser of every run shares one register bucket (burst 20 per
-# hour). Never point it at a shared stack.
+# LOCAL LAB ONLY: sourcing lib.sh deletes the gateway's register rate limit keys (svp:gw:rl:register:*) in Valkey db 10
+# of the stack (the cluster's on k3d) with SCAN + DEL through the backend's svp-valkey, as `make smoke` does. The web's
+# BFF reaches the gateway from one container address, so every browser of every run shares one register bucket (burst 20
+# per hour). Never point it at a shared stack.
 set -euo pipefail
 
 out=${1:?usage: seed.sh OUTPUT_FILE}

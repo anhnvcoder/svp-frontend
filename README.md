@@ -33,7 +33,8 @@ Cần có:
   (`npm install -g pnpm@<version>`; Node 25 trở đi không có Corepack). Mọi target `make` chạy Node tự đặt Node 26 mới nhất của nvm lên
   đầu `PATH`, kiểm major Node và version pnpm, lệch thì in lệnh cài và dừng.
 - Docker (trivy, ORAS, cosign chạy bằng image ghim digest, không cài), `jq`, `git`.
-- Redis local `127.0.0.1:6379` cho test (db 15) và `make dev` (db 9).
+- Redis local `127.0.0.1:6379` cho test (db 15) và `make dev` (db 9). Web trong compose và k3d của backend không dùng nó mà dùng Valkey
+  của stack (TLS, user `svp-web`, db 9).
 - Bản clone backend ở `<workspace>/backend` cho mọi việc cần stack (e2e, đo, Lighthouse, source map): cùng thư mục cha với repo
   này, hoặc đặt `SVP_BACKEND_DIR` tới một bản clone khác.
 
@@ -79,8 +80,8 @@ gói cha hỏi), nên một gói cha về sau hỏi dải đã có bản vá s�
 | `make e2e`, `make measure-web`, `make measure-upload`, `make lighthouse`, `make sourcemaps` | chạy trên stack compose của backend (`make up` ở backend; `OBS=lgtm` cho source map) |
 | `make k8s-e2e`, `make k8s-sourcemaps` | như trên với cluster k3d `svp` của backend (`https://svp.localhost:8443`) |
 
-**LOCAL LAB ONLY:** seed của e2e, mỗi worker Playwright và Lighthouse xoá khoá rate limit đăng ký `svp:gw:rl:register:*` ở Redis
-db 10 của stack (Valkey db 10 của cluster khi chạy k3d), bằng script của backend. Không trỏ các lệnh này vào stack dùng chung.
+**LOCAL LAB ONLY:** seed của e2e, mỗi worker Playwright và Lighthouse xoá khoá rate limit đăng ký `svp:gw:rl:register:*` ở Valkey
+db 10 của stack (Valkey của cluster khi chạy k3d), bằng `svp-valkey` của backend (user `svp-ops`). Không trỏ các lệnh này vào stack dùng chung.
 
 ### Chi tiết từng target
 
@@ -130,19 +131,19 @@ db 10 của stack (Valkey db 10 của cluster khi chạy k3d), bằng script c�
     chạy, dừng bằng pid của nó dù lượt chạy kết thúc thế nào.
   - `SVP_E2E_EVIDENCE` và mọi đối số được chuyển tiếp cho `playwright test`, như `make e2e`.
   - **LOCAL LAB ONLY**, như `make e2e`: `e2e/seed.sh` và mọi worker Playwright xoá các khoá rate limit đăng ký của gateway
-    (`svp:gw:rl:register:*`) ở Valkey db 10 của cluster (`kubectl exec`, context `k3d-svp`). Không trỏ nó vào cluster dùng chung.
+    (`svp:gw:rl:register:*`) ở Valkey db 10 của cluster (`svp-valkey` trong Deployment `svp-ops`, context `k3d-svp`). Không trỏ nó vào cluster dùng chung.
 - **`make measure-upload`** (`e2e/measure-upload.sh`, chạy từ gốc repo trên stack compose của backend, tức `make up` ở đó): một lần upload
   video khoảng 100 MB từ Chromium qua `/upload` (`e2e/measure-upload.e2e.ts`), rồi một bản tóm tắt: thời gian từ lúc XHR bắt đầu tới lúc
   load xong, thông lượng, CPU của main thread của trang trong lúc file lên, và thời gian tới `READY`; in ra và ghi vào
   `test-results/measure-upload-<giờ UTC>.json` (gitignore). Video là video thật và được transcode: 160 s test pattern 1080p có nhiễu ở
   khoảng 5 Mbit/s, tức khoảng 100 MB mà vẫn dưới 180 s mà web và media-worker nhận. Nó được tạo trong một thư mục tạm, xoá khi kết thúc.
-  **LOCAL LAB ONLY**, như lượt e2e (`e2e/seed.sh` đặt lại rate limit đăng ký của gateway ở Redis db 10).
+  **LOCAL LAB ONLY**, như lượt e2e (`e2e/seed.sh` đặt lại rate limit đăng ký của gateway ở Valkey db 10).
 - **`make measure-web`** (`e2e/measure-web.sh`, chạy từ gốc repo trên stack compose của backend): bộ nhớ của container `web` lúc nghỉ,
   cả lượt e2e (gồm test khung hình đầu, `e2e/first-frame.e2e.ts`), bộ nhớ ngay sau đó, rồi một bản tóm tắt: thời gian tới khung hình đầu
   p50/p95 theo trình duyệt và hai số đọc bộ nhớ, in ra và ghi vào `test-results/measure-web-<giờ UTC>.json` (gitignore). Bộ nhớ là
   `MemUsage` của `docker stats --no-stream`, tức bộ nhớ cgroup của container trừ phần cache file không hoạt động; "lúc nghỉ" là lúc
   script này bắt đầu, nên chạy nó ngay sau `make up` của backend để có số đọc lúc nghỉ. Thoát với status của lượt e2e.
-  **LOCAL LAB ONLY**, như chính lượt e2e (`e2e/seed.sh` đặt lại rate limit đăng ký của gateway ở Redis db 10).
+  **LOCAL LAB ONLY**, như chính lượt e2e (`e2e/seed.sh` đặt lại rate limit đăng ký của gateway ở Valkey db 10).
 - **Dữ liệu seed của e2e** (`e2e/seed.sh`): chạy một lần mỗi `playwright test` bởi `e2e/global-setup.ts` trên stack compose của `make up`,
   qua gateway ở `127.0.0.1:8080`. Trên cluster `svp` (`make k8s-e2e`), `global-setup` truyền `https://api.svp.localhost:8443` trong
   `SVP_E2E_GATEWAY_URL`, curl tin CA của cluster qua `CURL_CA_BUNDLE` (cho cả gateway lẫn storage), và `SVP_STACK=k3d` làm `lib.sh` đặt lại
@@ -156,8 +157,8 @@ db 10 của stack (Valkey db 10 của cluster khi chạy k3d), bằng script c�
   - Mỗi lượt chạy upload thêm một video của một tác giả mới có tiêu đề HTML (mô hình mối đe doạ WEB-1). Nó là video `READY` mới nhất, nên
     đứng đầu Explore, và tác giả của nó không có video nào khác: theo dõi họ làm feed Following có đúng video đó.
   - Ghi `{"xss": {"video_id", "author_id", "title"}, "explore_ready": N}` vào file mà đối số đầu tiên nêu.
-  - **LOCAL LAB ONLY:** `source` `lib.sh` xoá các khoá rate limit đăng ký của gateway (`svp:gw:rl:register:*`) ở Redis db 10 trên
-    `127.0.0.1:6379` (Valkey db 10 của cluster trên k3d) bằng `SCAN` + `DEL`, như `make smoke`. BFF của web tới gateway từ một địa chỉ
+  - **LOCAL LAB ONLY:** `source` `lib.sh` xoá các khoá rate limit đăng ký của gateway (`svp:gw:rl:register:*`) ở Valkey db 10 của
+    stack (của cluster trên k3d) bằng `SCAN` + `DEL` qua `svp-valkey` của backend, như `make smoke`. BFF của web tới gateway từ một địa chỉ
     container, nên mọi trình duyệt của mọi lượt chạy dùng chung một bucket đăng ký (burst 20 mỗi giờ). Không trỏ nó vào stack dùng chung.
 - **`make lighthouse`** (`lighthouse/run.sh`, chạy từ gốc repo trên stack compose của backend): ba lượt Lighthouse (`@lhci/cli`) cho mỗi
   trong hai trang, trong Chromium của Playwright, với cài đặt mobile mặc định của Lighthouse (điện thoại giả lập, 4G chậm mô phỏng và CPU
@@ -174,7 +175,7 @@ db 10 của stack (Valkey db 10 của cluster khi chạy k3d), bằng script c�
     (`configSettings.extraHeaders`) bị thay trước khi báo cáo được ghi, lượt chạy đỏ nếu vẫn tìm thấy giá trị cookie trong một kết quả
     hay báo cáo, và phiên được đăng xuất khi thoát để cookie ngừng dùng được.
   - **LOCAL LAB ONLY:** `source` `deploy/compose/lib.sh` của backend xoá các khoá rate limit đăng ký của gateway (`svp:gw:rl:register:*`)
-    ở Redis db 10 trên `127.0.0.1:6379` bằng `SCAN` + `DEL`, như `e2e/seed.sh` và `make smoke` của backend. Không trỏ nó vào stack dùng
+    ở Valkey db 10 của stack bằng `SCAN` + `DEL` qua `svp-valkey` của backend, như `e2e/seed.sh` và `make smoke` của backend. Không trỏ nó vào stack dùng
     chung.
 
 ### Test e2e
@@ -308,8 +309,9 @@ Từng workflow, ruleset và Renovate:
     Lượt đỏ (test e2e chập chờn trên runner dùng chung, ngưỡng Lighthouse, bản backend mà stg chưa ổn định) không chặn merge; người đọc PR
     thấy kết quả dưới tên job. Job build và chạy code của PR với `contents: read` và không secret: `make env` của backend ghi một `.env` toàn
     secret ngẫu nhiên mới, chỉ nằm trên runner tới hết job, không in, không tải lên. Các bước xoá khoá rate limit **LOCAL LAB ONLY** của smoke,
-    seed e2e và Lighthouse (khoá đăng ký ở Redis db 10) chỉ chạm service container Redis của chính lượt này. Công cụ của script lấy từ kho
-    Ubuntu (không action bên thứ ba): `psql` cho bootstrap Postgres (bản 16, SQL cần từ 15), `redis-cli` cho bước xoá rate limit, `ffmpeg`
+    seed e2e và Lighthouse (khoá đăng ký ở Valkey db 10) chỉ chạm Valkey của stack compose của chính lượt này (Kafka và Valkey là container
+    của stack, job chỉ còn service container Postgres). Công cụ của script lấy từ kho
+    Ubuntu (không action bên thứ ba): `psql` cho bootstrap Postgres (bản 16, SQL cần từ 15), `ffmpeg`
     cho video thử, `jq`; `curl` và `openssl` có sẵn trong image runner.
   - `sarif`: job duy nhất có quyền ghi (`security-events: write`); finding của PR nằm ở artifact và tóm tắt job. Job checkout chỉ để
     `upload-sarif` đọc dòng của từng finding và tính fingerprint (alert qua được việc lệch dòng cùng lịch sử và việc dismiss), không chạy gì

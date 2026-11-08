@@ -47,9 +47,9 @@ help: ## List the targets
 install: ## Install the packages exactly as pnpm-lock.yaml pins them
 	@$(NODE) pnpm install --frozen-lockfile
 
-# next dev on loopback only, against the gateway of the backend's `make up` and the web's session database (Redis
-# db 9). The browser origin is http://localhost:3002, not 127.0.0.1: POST requests from any other origin are refused as
-# CSRF.
+# next dev on loopback only, against the gateway of the backend's `make up` and the web's session database (the host's
+# Redis db 9, not the Valkey of the stack, which only containers reach). The browser origin is http://localhost:3002,
+# not 127.0.0.1: POST requests from any other origin are refused as CSRF.
 dev: ## Run the web client in dev mode at http://localhost:3002 against the gateway at 127.0.0.1:8080
 	@$(NODE) GATEWAY_URL=http://127.0.0.1:8080 REDIS_URL=redis://127.0.0.1:6379/9 APP_ORIGIN=http://localhost:3002 \
 		MEDIA_ORIGIN=http://127.0.0.1:9000 UPLOAD_ORIGIN=http://127.0.0.1:9000 \
@@ -257,7 +257,7 @@ lockfile-scan: backend-checkout ## trivy fs on pnpm-lock.yaml, dev dependencies 
 
 # Both need the backend's compose stack (make up there) and the Playwright browsers (pnpm exec playwright install
 # chromium webkit). LOCAL LAB ONLY: the seed (e2e/seed.sh) and every Playwright worker (e2e/fixtures.ts) delete the
-# gateway's register rate limit keys in Redis db 10, as the backend's smoke run does.
+# gateway's register rate limit keys in Valkey db 10, as the backend's smoke run does.
 e2e: ## Playwright end-to-end tests on Chromium and WebKit against the backend's compose stack (pnpm e2e)
 	@$(NODE) $(BACKEND) pnpm e2e
 
@@ -270,7 +270,7 @@ measure-upload: ## Upload a ~100 MB video from Chromium through /upload; print t
 
 # Needs the backend's stack and Playwright's Chromium (pnpm exec playwright install chromium); three runs per page, each
 # threshold read on the median. LOCAL LAB ONLY like e2e: lighthouse/run.sh registers a fresh user and deletes the gateway's
-# register rate limit keys in Redis db 10 first.
+# register rate limit keys in Valkey db 10 first.
 lighthouse: ## Lighthouse (mobile, three runs per page) of the feed logged in and /v/{id} logged out: LCP/CLS/TBT/accessibility thresholds on the median, reports in test-results/lighthouse/
 	@$(NODE) $(BACKEND) bash lighthouse/run.sh
 

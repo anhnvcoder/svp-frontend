@@ -7,7 +7,7 @@
 # Memory is MemUsage of `docker stats --no-stream`, the container's cgroup memory less its inactive file cache; "at
 # rest" is when this script starts, so run it right after the backend's `make up`.
 
-# LOCAL LAB ONLY, like the e2e run itself (e2e/seed.sh resets the gateway's register rate limit in Redis db 10).
+# LOCAL LAB ONLY, like the e2e run itself (e2e/seed.sh resets the gateway's register rate limit in Valkey db 10).
 set -euo pipefail
 
 docker_() { env -u DOCKER_DEFAULT_PLATFORM docker "$@"; }

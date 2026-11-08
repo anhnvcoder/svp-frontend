@@ -230,8 +230,8 @@ type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
 type WorkerFixtures = {
   // LOCAL LAB ONLY: before the first test of every worker (one per project, and a new one after a failed test), the
-  // gateway's register rate limit keys (svp:gw:rl:register:*) in Redis db 10 on 127.0.0.1:6379 (on k3d: Valkey db 10
-  // of cluster svp, through kubectl) are deleted with SCAN + DEL by reset_register_limit of deploy/compose/lib.sh; the
+  // gateway's register rate limit keys (svp:gw:rl:register:*) in Valkey db 10 of the stack (on k3d: of cluster svp) are
+  // deleted with SCAN + DEL by reset_register_limit of deploy/compose/lib.sh, through the backend's svp-valkey; the
   // limit itself is not raised. Never point the e2e run at a shared stack.
   registerLimitReset: void;
   // A user of this worker, logged in once through the login page; its cookie is kept for the tests of `authedTest`.
@@ -271,7 +271,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   ],
   registerLimitReset: [
     async ({}, provide) => {
-      // Sourcing lib.sh runs reset_register_limit, which exits non-zero when redis-cli fails.
+      // Sourcing lib.sh runs reset_register_limit, which exits non-zero when svp-valkey fails.
       const lib = join(backendDir(), "deploy", "compose", "lib.sh");
       execFileSync("bash", ["-c", 'source "$1"', "bash", lib], { stdio: ["ignore", "inherit", "inherit"] });
       await provide();
