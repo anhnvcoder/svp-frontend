@@ -309,10 +309,9 @@ Từng workflow, ruleset và Renovate:
     Lượt đỏ (test e2e chập chờn trên runner dùng chung, ngưỡng Lighthouse, bản backend mà stg chưa ổn định) không chặn merge; người đọc PR
     thấy kết quả dưới tên job. Job build và chạy code của PR với `contents: read` và không secret: `make env` của backend ghi một `.env` toàn
     secret ngẫu nhiên mới, chỉ nằm trên runner tới hết job, không in, không tải lên. Các bước xoá khoá rate limit **LOCAL LAB ONLY** của smoke,
-    seed e2e và Lighthouse (khoá đăng ký ở Valkey db 10) chỉ chạm Valkey của stack compose của chính lượt này (Kafka và Valkey là container
-    của stack, job chỉ còn service container Postgres). Công cụ của script lấy từ kho
-    Ubuntu (không action bên thứ ba): `psql` cho bootstrap Postgres (bản 16, SQL cần từ 15), `ffmpeg`
-    cho video thử, `jq`; `curl` và `openssl` có sẵn trong image runner.
+    seed e2e và Lighthouse (khoá đăng ký ở Valkey db 10) chỉ chạm Valkey của stack compose của chính lượt này (Kafka, Valkey và Postgres
+    đều là container của stack, job không có service container nào). Công cụ của script lấy từ kho
+    Ubuntu (không action bên thứ ba): `ffmpeg` cho video thử, `jq`; `curl` và `openssl` có sẵn trong image runner.
   - `sarif`: job duy nhất có quyền ghi (`security-events: write`); finding của PR nằm ở artifact và tóm tắt job. Job checkout chỉ để
     `upload-sarif` đọc dòng của từng finding và tính fingerprint (alert qua được việc lệch dòng cùng lịch sử và việc dismiss), không chạy gì
     của repo. Là báo cáo chứ không phải check: upload lỗi vẫn làm lượt chạy đỏ.

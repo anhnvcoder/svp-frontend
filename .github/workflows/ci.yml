@@ -313,23 +313,6 @@ jobs:
       SVP_WEB_DIR: ${{ github.workspace }}/frontend
       SVP_BACKEND_DIR: ${{ github.workspace }}/backend
       SVP_GITOPS_DIR: ${{ github.workspace }}/gitops
-    services:
-      # The compose containers reach this as host.docker.internal, which compose's host-gateway maps to the gateway of
-      # Docker's default bridge (docker0, 172.17.0.1). So it is published on that address and on loopback (psql of the
-      # backend's Postgres bootstrap runs on the runner), never on every interface. Kafka and Valkey are containers of
-      # the compose stack.
-      postgres:
-        image: docker.io/library/postgres:15.19-trixie@sha256:c961aa287d8698297cb26cdfadfbe9fd2cbaf77e53cfffe9636e8d8a1e4d842c
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 127.0.0.1:5432:5432
-          - 172.17.0.1:5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -364,10 +347,6 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      # host-gateway is the gateway of the default bridge (unless the daemon sets host-gateway-ip), and Postgres
-      # above is published on 172.17.0.1: if the two differ, every compose service fails to reach Postgres with a
-      # timeout far from its cause. Said here, before anything is pulled or built.
-      - run: make -C backend ci-bridge-check
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: frontend/.nvmrc
@@ -379,11 +358,11 @@ jobs:
         with:
           path: ${{ steps.pnpm.outputs.store }}
           key: pnpm-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-      # From Ubuntu's archive, no third-party action. psql is 16 here; the Postgres bootstrap SQL needs 15 or later.
+      # From Ubuntu's archive, no third-party action.
       - name: Install the tools of the scripts
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends postgresql-client ffmpeg jq
+          sudo apt-get install -y -q --no-install-recommends ffmpeg jq
       - run: make -C backend env
       - run: make -C backend up IMAGES=stg WEB_FROM=clone
       - run: make -C backend smoke
