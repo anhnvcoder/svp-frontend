@@ -38,7 +38,7 @@ const profile = { user_id: userId, handle: "minhanh", display_name: "Minh Anh" }
 
 beforeEach(() => {
   request.cookies.clear();
-  request.headers = new Headers({ "x-forwarded-for": "203.0.113.7" });
+  request.headers = new Headers({ "x-forwarded-for": "203.0.113.7", "cloudfront-viewer-address": "203.0.113.7:4711" });
   request.services = undefined;
 });
 
@@ -82,6 +82,7 @@ describe.skipIf(!testRedisURL)("loadMyProfile on the test Redis", () => {
     expect(me).toEqual({ userId, handle: "minhanh", displayName: "Minh Anh" });
     expect(seen?.headers.get("authorization")).toBe(`Bearer ${tokens.access_token}`);
     expect(seen?.headers.get("x-forwarded-for")).toBe("203.0.113.7");
+    expect(seen?.headers.get("CloudFront-Viewer-Address")).toBe("203.0.113.7:4711");
     const text = JSON.stringify(me);
     expect(text).not.toContain(tokens.access_token);
     expect(text).not.toContain(tokens.refresh_token);

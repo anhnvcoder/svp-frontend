@@ -95,9 +95,12 @@ describe("BFF calls to the gateway", () => {
     const token = fakeAccessToken("6f1a2b3c-4d5e-4f60-8a1b-2c3d4e5f6a7b");
 
     const traceId = await tracer.startActiveSpan("GET /", { kind: api.SpanKind.SERVER }, async (span) => {
-      await gatewayClient(gatewayOrigin, token, "203.0.113.7").GET("/feed/explore", {
-        params: { query: { cursor: "secret-cursor" } },
-      });
+      await gatewayClient(gatewayOrigin, token, { forwardedFor: "203.0.113.7", viewerAddress: null }).GET(
+        "/feed/explore",
+        {
+          params: { query: { cursor: "secret-cursor" } },
+        },
+      );
       span.end();
       return span.spanContext().traceId;
     });

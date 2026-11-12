@@ -173,7 +173,7 @@ describe.skipIf(!testRedisURL)("proxyApiRequest on the test Redis", () => {
     return { services, sid, session };
   }
 
-  it("calls the gateway with the session's token, the browser's X-Forwarded-For and nothing else of the browser", async () => {
+  it("calls the gateway with the session's token, the browser's X-Forwarded-For and CloudFront-Viewer-Address and nothing else of the browser", async () => {
     const { services, sid, session } = await withSession();
     const seen = gateway(() =>
       HttpResponse.json(
@@ -188,6 +188,7 @@ describe.skipIf(!testRedisURL)("proxyApiRequest on the test Redis", () => {
         headers: {
           authorization: "Bearer attacker",
           "x-forwarded-for": "198.51.100.1, 10.42.0.9",
+          "CloudFront-Viewer-Address": "198.51.100.1:4711",
           "x-custom": "1",
           origin: appOrigin,
           traceparent: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
@@ -205,6 +206,7 @@ describe.skipIf(!testRedisURL)("proxyApiRequest on the test Redis", () => {
     expect(Object.fromEntries(new URL(call.url).searchParams)).toEqual({ page_size: "5", cursor: "abc+/" });
     expect(call.headers.get("authorization")).toBe(`Bearer ${session.access_token}`);
     expect(call.headers.get("x-forwarded-for")).toBe("198.51.100.1, 10.42.0.9");
+    expect(call.headers.get("cloudfront-viewer-address")).toBe("198.51.100.1:4711");
     for (const dropped of ["cookie", "x-custom", "origin", "traceparent"]) {
       expect(call.headers.get(dropped)).toBeNull();
     }
@@ -217,11 +219,27 @@ describe.skipIf(!testRedisURL)("proxyApiRequest on the test Redis", () => {
     expect(await response.json()).toEqual({ items: [], next_cursor: "" });
   });
 
-  it("sends no X-Forwarded-For when the browser's request had none", async () => {
+  it("sends neither X-Forwarded-For nor CloudFront-Viewer-Address when the browser's request had none", async () => {
     const { services, sid } = await withSession();
     const seen = gateway();
     await proxyApiRequest(apiRequest(`/videos/${videoId}/like`, { method: "PUT", sid }), services);
     expect(seen[0]?.headers.get("x-forwarded-for")).toBeNull();
+    expect(seen[0]?.headers.get("cloudfront-viewer-address")).toBeNull();
+  });
+
+  it("sends only CloudFront-Viewer-Address when that is all the browser's request had", async () => {
+    const { services, sid } = await withSession();
+    const seen = gateway();
+    await proxyApiRequest(
+      apiRequest(`/videos/${videoId}/like`, {
+        method: "PUT",
+        sid,
+        headers: { "cloudfront-viewer-address": "[2001:db8::1]:4711" },
+      }),
+      services,
+    );
+    expect(seen[0]?.headers.get("x-forwarded-for")).toBeNull();
+    expect(seen[0]?.headers.get("CloudFront-Viewer-Address")).toBe("[2001:db8::1]:4711");
   });
 
   it.each([

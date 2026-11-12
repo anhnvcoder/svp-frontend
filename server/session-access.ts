@@ -1,5 +1,5 @@
 import "server-only";
-import type { AuthGateway } from "./gateway";
+import type { AuthGateway, ClientAddress } from "./gateway";
 import { hashSid, type Session, type SessionStore } from "./session";
 
 // Hands out a usable access token for a session, refreshing it shortly before it expires. A refresh token works once:
@@ -62,8 +62,8 @@ export class SessionAccess {
     this.now = options.now ?? Date.now;
   }
 
-  async access(sid: string, forwardedFor: string | null): Promise<AccessResult> {
-    const session = await this.live(sid, forwardedFor);
+  async access(sid: string, address: ClientAddress): Promise<AccessResult> {
+    const session = await this.live(sid, address);
     if (!session) {
       return { kind: "none" };
     }
@@ -78,7 +78,7 @@ export class SessionAccess {
     const key = hashSid(sid);
     let pending = this.inflight.get(key);
     if (!pending) {
-      pending = this.refresh(sid, session, forwardedFor).finally(() => this.inflight.delete(key));
+      pending = this.refresh(sid, session, address).finally(() => this.inflight.delete(key));
       this.inflight.set(key, pending);
     }
     return pending;
@@ -86,18 +86,18 @@ export class SessionAccess {
 
   // Ends a session the gateway no longer accepts: deletes it unless it changed meanwhile, then revokes its refresh
   // token family on a best-effort basis.
-  async end(sid: string, session: Session, forwardedFor: string | null): Promise<void> {
+  async end(sid: string, session: Session, address: ClientAddress): Promise<void> {
     if (await this.store.compareAndDelete(sid, session)) {
-      await this.revoke(session.refresh_token, forwardedFor);
+      await this.revoke(session.refresh_token, address);
     }
   }
 
   // The session of sid, or null when there is none. One read past its idle or absolute deadline (Redis normally drops
   // the key by then) is ended like a session the gateway refused, its refresh token family revoked.
-  private async live(sid: string, forwardedFor: string | null): Promise<Session | null> {
+  private async live(sid: string, address: ClientAddress): Promise<Session | null> {
     const session = await this.store.read(sid);
     if (session && this.store.expired(session)) {
-      await this.end(sid, session, forwardedFor);
+      await this.end(sid, session, address);
       return null;
     }
     return session;
@@ -111,17 +111,17 @@ export class SessionAccess {
     return Date.parse(session.access_expires_at) > this.now() ? { kind: "ok", session } : { kind: "expired" };
   }
 
-  private async refresh(sid: string, seen: Session, forwardedFor: string | null): Promise<AccessResult> {
+  private async refresh(sid: string, seen: Session, address: ClientAddress): Promise<AccessResult> {
     // Redis starts the lease when it runs the SET, which is after this instant, so a deadline counted from here ends
     // before the lease does. A monotonic clock: a wall clock step must not stretch the deadline.
     const asked = performance.now();
     const holder = await this.store.acquireLock(sid, this.leaseMs);
     if (holder === null) {
-      return this.waitForHolder(sid, seen, forwardedFor);
+      return this.waitForHolder(sid, seen, address);
     }
     try {
       // Another replica may have refreshed between our read and the lease.
-      const current = await this.live(sid, forwardedFor);
+      const current = await this.live(sid, address);
       if (!current) {
         return { kind: "none" };
       }
@@ -134,7 +134,7 @@ export class SessionAccess {
         console.warn("session refresh skipped: the refresh lease left no time for the call");
         return this.usable(current);
       }
-      const result = await this.gateway.refresh(current.refresh_token, forwardedFor, AbortSignal.timeout(budgetMs));
+      const result = await this.gateway.refresh(current.refresh_token, address, AbortSignal.timeout(budgetMs));
       switch (result.kind) {
         case "rotated": {
           const next = await this.store.compareAndSet(sid, current, result.tokens);
@@ -143,7 +143,7 @@ export class SessionAccess {
           }
           // The session was logged out (or written by someone else) during the call: do not bring it back, and revoke
           // the family the new token belongs to.
-          await this.revoke(result.tokens.refresh_token, forwardedFor);
+          await this.revoke(result.tokens.refresh_token, address);
           return { kind: "none" };
         }
         case "invalid":
@@ -166,11 +166,11 @@ export class SessionAccess {
 
   // Another replica (or a request of this one that lost the in-process race) holds the lease: wait for the session it
   // writes, without calling the gateway.
-  private async waitForHolder(sid: string, seen: Session, forwardedFor: string | null): Promise<AccessResult> {
+  private async waitForHolder(sid: string, seen: Session, address: ClientAddress): Promise<AccessResult> {
     const deadline = this.now() + this.waitMs;
     for (;;) {
       await sleep(this.pollMs);
-      let current = await this.live(sid, forwardedFor);
+      let current = await this.live(sid, address);
       if (!current) {
         return { kind: "none" };
       }
@@ -179,7 +179,7 @@ export class SessionAccess {
       }
       if (!(await this.store.lockHeld(sid))) {
         // The holder may have written just before it let go; read once more before concluding it gave up.
-        current = await this.live(sid, forwardedFor);
+        current = await this.live(sid, address);
         if (!current) {
           return { kind: "none" };
         }
@@ -193,9 +193,9 @@ export class SessionAccess {
     }
   }
 
-  private async revoke(refreshToken: string, forwardedFor: string | null): Promise<void> {
+  private async revoke(refreshToken: string, address: ClientAddress): Promise<void> {
     try {
-      await this.gateway.logout(refreshToken, forwardedFor);
+      await this.gateway.logout(refreshToken, address);
     } catch {
       console.warn("revoking a refresh token family failed; it expires by itself");
     }

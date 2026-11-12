@@ -10,7 +10,7 @@ import {
   type ShownProfile,
 } from "@/features/profile/api";
 import { serverEnv } from "./env";
-import { gatewayClient, retryAfterSeconds, type GatewayClient } from "./gateway";
+import { clientAddressOf, gatewayClient, retryAfterSeconds, type ClientAddress, type GatewayClient } from "./gateway";
 import { pathHeader } from "./request-headers";
 import { bffServices } from "./runtime";
 import { sessionCookieName, type Session } from "./session";
@@ -45,7 +45,7 @@ const profileSchema = z.object({
   followed_by_me: z.boolean(),
 });
 
-type Usable = { kind: "ok"; sid: string; session: Session; client: GatewayClient; forwardedFor: string | null };
+type Usable = { kind: "ok"; sid: string; session: Session; client: GatewayClient; address: ClientAddress };
 type Access = Usable | { kind: "login" } | { kind: "unavailable"; retryAfterSeconds?: number };
 
 async function loginRedirect(): Promise<never> {
@@ -60,23 +60,23 @@ async function sessionAccess(): Promise<Access> {
     return { kind: "login" };
   }
   const { env, access } = await bffServices();
-  const forwardedFor = (await headers()).get("x-forwarded-for");
-  const result = await access.access(sid, forwardedFor);
+  const address = clientAddressOf(await headers());
+  const result = await access.access(sid, address);
   if (result.kind === "none" || result.kind === "expired") {
     return { kind: "login" };
   }
   if (result.kind === "unavailable") {
     return { kind: "unavailable", retryAfterSeconds: result.status === 429 ? result.retryAfterSeconds : undefined };
   }
-  const client = gatewayClient(env.gatewayOrigin, result.session.access_token, forwardedFor);
-  return { kind: "ok", sid, session: result.session, client, forwardedFor };
+  const client = gatewayClient(env.gatewayOrigin, result.session.access_token, address);
+  return { kind: "ok", sid, session: result.session, client, address };
 }
 
 // The gateway refuses a token the session just handed out: the session is of no use. Ending it keeps the login page,
 // which sends a logged-in visitor away, from sending the user straight back here.
 async function endSession(usable: Usable): Promise<never> {
   const { access } = await bffServices();
-  await access.end(usable.sid, usable.session, usable.forwardedFor).catch(() => {
+  await access.end(usable.sid, usable.session, usable.address).catch(() => {
     // Redis is down: the session stays until its TTL, and the next request tries again.
   });
   return loginRedirect();

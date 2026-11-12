@@ -1,4 +1,4 @@
-import { http } from "msw";
+import { http, HttpResponse } from "msw";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "@/lib/test/msw-server";
@@ -30,7 +30,13 @@ const userId = "01928c6e-7b3a-7cde-8f01-23456789abcd";
 function logoutRequest(sid?: string) {
   return new NextRequest("http://localhost:3001/logout", {
     method: "POST",
-    headers: sid ? { cookie: `svp_locale=en; svp_sid=${sid}`, "x-forwarded-for": "203.0.113.5" } : {},
+    headers: sid
+      ? {
+          cookie: `svp_locale=en; svp_sid=${sid}`,
+          "x-forwarded-for": "203.0.113.5",
+          "CloudFront-Viewer-Address": "203.0.113.5:4711",
+        }
+      : {},
   });
 }
 
@@ -71,6 +77,22 @@ describe.skipIf(!testRedisURL)("POST /logout on the test Redis", () => {
     expect(logouts).toEqual([session.refresh_token]);
     expect(await state.services.store.get(sid)).toBeNull();
     expect(await redis.client().keys(`${redis.prefix()}*`)).toEqual([]);
+  });
+
+  it("sends the request's X-Forwarded-For and CloudFront-Viewer-Address to the gateway's logout", async () => {
+    state.services = testServices(redis.client(), redis.prefix());
+    const { sid } = await state.services.store.create(userId, fakeTokens(userId));
+    let seen: (string | null)[] = [];
+    server.use(
+      http.post(`${gatewayOrigin}/auth/logout`, ({ request }) => {
+        seen = [request.headers.get("x-forwarded-for"), request.headers.get("cloudfront-viewer-address")];
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    expectLoggedOutResponse(await POST(logoutRequest(sid)));
+
+    expect(seen).toEqual(["203.0.113.5", "203.0.113.5:4711"]);
   });
 
   it("deletes the session even when the gateway's logout fails", async () => {

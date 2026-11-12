@@ -240,6 +240,11 @@ dùng chung các bucket theo IP của gateway: đăng ký (burst 20 mỗi giờ)
   đúng như nhận được và gateway đọc địa chỉ do Envoy ghi (`server/gateway.ts`), như nhau cho cả hai. Ngân sách ở đó chặt hơn trên
   compose; việc đặt lại trước test đầu tiên của mỗi worker giữ nó dưới burst.
 
+BFF không đọc, không parse IP của client. Mọi lời gọi gateway (đăng nhập, đăng ký, refresh và đăng xuất của `session-access`,
+`api-proxy`, trang video, trang profile, `/logout`) chuyển nguyên hai header của request tới, khi request có chúng:
+`X-Forwarded-For` và `CloudFront-Viewer-Address` (`clientAddressOf` và `gatewayHeaders` ở `server/gateway.ts`); header nào request
+không có thì không gửi. Gateway chọn header nào để tin theo cấu hình của nó.
+
 **LOCAL LAB ONLY:** trước test đầu tiên của mỗi worker (mỗi project một worker, và một worker mới sau một test lỗi), các khoá rate limit
 đăng ký của gateway (`svp:gw:rl:register:*`) ở Valkey db 10 của stack (trên k3d: của cluster `svp`, như `SVP_STACK=k3d` báo cho `lib.sh`) bị xoá bằng `SCAN` + `DEL` qua
 `svp-valkey` của backend (user `svp-ops`), bởi `reset_register_limit` của `deploy/compose/lib.sh`, như

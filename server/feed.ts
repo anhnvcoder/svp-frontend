@@ -3,7 +3,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cleanPage, retryAfterSeconds, type FeedKind, type FeedPage } from "@/features/feed/api";
 import { serverEnv } from "./env";
-import { gatewayClient } from "./gateway";
+import { clientAddressOf, gatewayClient } from "./gateway";
 import { pathHeader } from "./request-headers";
 import { bffServices } from "./runtime";
 import { sessionCookieName } from "./session";
@@ -32,8 +32,8 @@ export async function loadFirstFeedPage(kind: FeedKind, options: { timeoutMs?: n
     return loginRedirect();
   }
   const { env, access } = await bffServices();
-  const forwardedFor = (await headers()).get("x-forwarded-for");
-  const result = await access.access(sid, forwardedFor);
+  const address = clientAddressOf(await headers());
+  const result = await access.access(sid, address);
   if (result.kind === "none" || result.kind === "expired") {
     return loginRedirect();
   }
@@ -44,7 +44,7 @@ export async function loadFirstFeedPage(kind: FeedKind, options: { timeoutMs?: n
 
   let answer;
   try {
-    const client = gatewayClient(env.gatewayOrigin, session.access_token, forwardedFor);
+    const client = gatewayClient(env.gatewayOrigin, session.access_token, address);
     const init = { signal: AbortSignal.timeout(options.timeoutMs ?? firstPageTimeoutMs) };
     answer = kind === "explore" ? await client.GET("/feed/explore", init) : await client.GET("/feed/following", init);
   } catch {
@@ -54,7 +54,7 @@ export async function loadFirstFeedPage(kind: FeedKind, options: { timeoutMs?: n
   if (response.status === 401) {
     // The gateway refuses a token the session just handed out: the session is of no use. Ending it keeps the login
     // page, which sends a logged-in visitor away, from sending the user straight back here.
-    await access.end(sid, session, forwardedFor).catch(() => {
+    await access.end(sid, session, address).catch(() => {
       // Redis is down: the session stays until its TTL, and the next request tries again.
     });
     return loginRedirect();

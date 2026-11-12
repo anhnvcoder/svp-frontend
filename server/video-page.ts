@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { FeedItem } from "@/features/feed/api";
 import { isMediaUrl } from "@/features/feed/media-url";
 import { serverEnv, type ServerEnv } from "./env";
-import { gatewayClient, retryAfterSeconds } from "./gateway";
+import { clientAddressOf, gatewayClient, retryAfterSeconds, type ClientAddress } from "./gateway";
 import { bffServices } from "./runtime";
 import { sessionCookieName } from "./session";
 
@@ -108,10 +108,10 @@ function fromAnswer({ data, response }: Answer, videoId: string, viewerId: strin
 // The usable session and the service that hands it out, or null when the visitor counts as a guest here: no session,
 // an expired one, or a session store that cannot be reached or refreshed right now. A public page never sends anyone
 // to log in.
-async function sessionOf(sid: string, forwardedFor: string | null) {
+async function sessionOf(sid: string, address: ClientAddress) {
   try {
     const { access } = await bffServices();
-    const result = await access.access(sid, forwardedFor);
+    const result = await access.access(sid, address);
     return result.kind === "ok" ? { access, session: result.session } : null;
   } catch {
     return null;
@@ -123,15 +123,15 @@ async function load(videoId: string, timeoutMs: number): Promise<VideoPage> {
     return { kind: "not-found" };
   }
   const env = serverEnv();
-  const forwardedFor = (await headers()).get("x-forwarded-for");
+  const address = clientAddressOf(await headers());
   const init = () => ({ params: { path: { video_id: videoId } }, signal: AbortSignal.timeout(timeoutMs) });
   try {
     // The cookie first: a visitor without one is a guest, whatever the session store's state.
     const sid = (await cookies()).get(sessionCookieName(env.secure))?.value;
-    const viewer = sid ? await sessionOf(sid, forwardedFor) : null;
+    const viewer = sid ? await sessionOf(sid, address) : null;
     if (sid && viewer) {
       const { access, session } = viewer;
-      const answer = await gatewayClient(env.gatewayOrigin, session.access_token, forwardedFor).GET(
+      const answer = await gatewayClient(env.gatewayOrigin, session.access_token, address).GET(
         "/videos/{video_id}",
         init(),
       );
@@ -141,11 +141,11 @@ async function load(videoId: string, timeoutMs: number): Promise<VideoPage> {
       // A token the gateway refuses: the session is of no use. Ending it keeps the login page, which sends a
       // logged-in visitor away, from sending the user elsewhere instead of back here. The page is public, so it then
       // shows the guest's view instead of the login page.
-      await access.end(sid, session, forwardedFor).catch(() => {
+      await access.end(sid, session, address).catch(() => {
         // Redis is down: the session stays until its TTL, and the next request tries again.
       });
     }
-    const answer = await gatewayClient(env.gatewayOrigin, null, forwardedFor).GET("/public/videos/{video_id}", init());
+    const answer = await gatewayClient(env.gatewayOrigin, null, address).GET("/public/videos/{video_id}", init());
     return fromAnswer(answer, videoId, null);
   } catch {
     return { kind: "unavailable" };

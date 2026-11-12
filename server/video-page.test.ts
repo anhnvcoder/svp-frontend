@@ -77,12 +77,18 @@ const guestItem = { ...publicVideo, stats: { ...publicVideo.stats, liked_by_me: 
 
 // Records the gateway calls of a test and answers them.
 function gateway(answers: { public?: () => Response; private?: () => Response }) {
-  const calls: { path: string; authorization: string | null; forwardedFor: string | null }[] = [];
+  const calls: {
+    path: string;
+    authorization: string | null;
+    forwardedFor: string | null;
+    viewerAddress: string | null;
+  }[] = [];
   const record = (call: Request) => {
     calls.push({
       path: new URL(call.url).pathname,
       authorization: call.headers.get("authorization"),
       forwardedFor: call.headers.get("x-forwarded-for"),
+      viewerAddress: call.headers.get("cloudfront-viewer-address"),
     });
   };
   server.use(
@@ -100,7 +106,7 @@ function gateway(answers: { public?: () => Response; private?: () => Response })
 
 beforeEach(() => {
   request.cookies.clear();
-  request.headers = new Headers({ "x-forwarded-for": "203.0.113.7" });
+  request.headers = new Headers({ "x-forwarded-for": "203.0.113.7", "CloudFront-Viewer-Address": "203.0.113.7:4711" });
   request.services = undefined;
   request.servicesCalls = 0;
 });
@@ -119,19 +125,34 @@ describe("isVideoId", () => {
 });
 
 describe("loadVideoPage for a guest (no session cookie)", () => {
-  it("reads the public video without a token, passes X-Forwarded-For on, and never reaches the session store", async () => {
+  it("reads the public video without a token, passes X-Forwarded-For and CloudFront-Viewer-Address on, and never reaches the session store", async () => {
     const calls = gateway({});
     const page = await loadVideoPage(videoId);
     expect(page).toEqual({ kind: "video", video: guestItem, viewerId: null, loadedAt: expect.any(Number) });
-    expect(calls).toEqual([{ path: `/public/videos/${videoId}`, authorization: null, forwardedFor: "203.0.113.7" }]);
+    expect(calls).toEqual([
+      {
+        path: `/public/videos/${videoId}`,
+        authorization: null,
+        forwardedFor: "203.0.113.7",
+        viewerAddress: "203.0.113.7:4711",
+      },
+    ]);
     expect(request.servicesCalls).toBe(0);
   });
 
-  it("sends no X-Forwarded-For when the request had none", async () => {
+  it("sends neither X-Forwarded-For nor CloudFront-Viewer-Address when the request had none", async () => {
     request.headers = new Headers();
     const calls = gateway({});
     await loadVideoPage(videoId);
     expect(calls[0]?.forwardedFor).toBeNull();
+    expect(calls[0]?.viewerAddress).toBeNull();
+  });
+
+  it("sends only CloudFront-Viewer-Address when that is all the request had", async () => {
+    request.headers = new Headers({ "cloudfront-viewer-address": "[2001:db8::1]:4711" });
+    const calls = gateway({});
+    await loadVideoPage(videoId);
+    expect(calls[0]).toMatchObject({ forwardedFor: null, viewerAddress: "[2001:db8::1]:4711" });
   });
 
   it.each([videoId.toUpperCase(), "not-a-uuid", "..", "%2e%2e"])(
@@ -254,7 +275,12 @@ describe.skipIf(!testRedisURL)("loadVideoPage with a session on the test Redis",
       loadedAt: expect.any(Number),
     });
     expect(calls).toEqual([
-      { path: `/videos/${videoId}`, authorization: `Bearer ${tokens.access_token}`, forwardedFor: "203.0.113.7" },
+      {
+        path: `/videos/${videoId}`,
+        authorization: `Bearer ${tokens.access_token}`,
+        forwardedFor: "203.0.113.7",
+        viewerAddress: "203.0.113.7:4711",
+      },
     ]);
     const text = JSON.stringify(page);
     expect(text).not.toContain(tokens.access_token);

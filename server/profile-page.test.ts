@@ -81,7 +81,13 @@ async function redirectTarget(run: Promise<unknown>): Promise<string> {
 
 // Records the gateway calls of a test.
 function recordCalls() {
-  const calls: { path: string; query: string; authorization: string | null; forwardedFor: string | null }[] = [];
+  const calls: {
+    path: string;
+    query: string;
+    authorization: string | null;
+    forwardedFor: string | null;
+    viewerAddress: string | null;
+  }[] = [];
   server.events.on("request:start", ({ request: call }) => {
     const url = new URL(call.url);
     if (url.origin === gatewayOrigin && !url.pathname.startsWith("/auth/")) {
@@ -90,6 +96,7 @@ function recordCalls() {
         query: url.search,
         authorization: call.headers.get("authorization"),
         forwardedFor: call.headers.get("x-forwarded-for"),
+        viewerAddress: call.headers.get("cloudfront-viewer-address"),
       });
     }
   });
@@ -98,7 +105,11 @@ function recordCalls() {
 
 beforeEach(() => {
   request.cookies.clear();
-  request.headers = new Headers({ "x-forwarded-for": "203.0.113.7", [pathHeader]: "/u/minhanh?x=1" });
+  request.headers = new Headers({
+    "x-forwarded-for": "203.0.113.7",
+    "cloudfront-viewer-address": "203.0.113.7:4711",
+    [pathHeader]: "/u/minhanh?x=1",
+  });
   request.services = undefined;
   server.events.removeAllListeners();
 });
@@ -173,6 +184,7 @@ describe.skipIf(!testRedisURL)("profile loaders on the test Redis", () => {
           query: "?page_size=18",
           authorization: `Bearer ${tokens.access_token}`,
           forwardedFor: "203.0.113.7",
+          viewerAddress: "203.0.113.7:4711",
         },
       ]);
       const text = JSON.stringify(first);

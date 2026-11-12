@@ -2,7 +2,7 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
 import { server } from "@/lib/test/msw-server";
 import { checkCredentials, checkRegistration, failureState, safeNext, signIn, signOut } from "./auth";
-import { createAuthGateway, subjectOf } from "./gateway";
+import { createAuthGateway, noClientAddress, subjectOf } from "./gateway";
 import {
   accessTokenBody,
   fakeAccessToken,
@@ -219,14 +219,17 @@ describe("AuthGateway.login and register answers", () => {
       http.post(`${gatewayOrigin}/auth/login`, () => gatewayProblem(status, code, headers)),
       http.post(`${gatewayOrigin}/auth/register`, () => gatewayProblem(status, code, headers)),
     );
-    expect(await gateway.login("a@example.com", "12345678", null)).toEqual({ ok: false, ...expected });
+    expect(await gateway.login("a@example.com", "12345678", noClientAddress)).toEqual({ ok: false, ...expected });
     const account = { email: "a@example.com", password: "12345678", handle: "alice" };
-    expect(await gateway.register(account, null)).toEqual({ ok: false, ...expected });
+    expect(await gateway.register(account, noClientAddress)).toEqual({ ok: false, ...expected });
   });
 
   it("is UNAVAILABLE when the gateway cannot be reached", async () => {
     server.use(http.post(`${gatewayOrigin}/auth/login`, () => HttpResponse.error()));
-    expect(await gateway.login("a@example.com", "12345678", null)).toEqual({ ok: false, code: "UNAVAILABLE" });
+    expect(await gateway.login("a@example.com", "12345678", noClientAddress)).toEqual({
+      ok: false,
+      code: "UNAVAILABLE",
+    });
   });
 
   it("sends the credentials and X-Forwarded-For unchanged", async () => {
@@ -238,7 +241,9 @@ describe("AuthGateway.login and register answers", () => {
         return HttpResponse.json(accessTokenBody(tokens));
       }),
     );
-    expect(await gateway.login("a@example.com", "12345678", "203.0.113.9")).toEqual({ ok: true, userId, tokens });
+    expect(
+      await gateway.login("a@example.com", "12345678", { forwardedFor: "203.0.113.9", viewerAddress: null }),
+    ).toEqual({ ok: true, userId, tokens });
     expect(seen).toEqual({ body: { email: "a@example.com", password: "12345678" }, forwarded: "203.0.113.9" });
   });
 });
@@ -253,7 +258,7 @@ describe.skipIf(!testRedisURL)("signIn and signOut on the test Redis", () => {
     const tokens = fakeTokens(userId);
     server.use(http.post(`${gatewayOrigin}/auth/login`, () => HttpResponse.json(accessTokenBody(tokens))));
 
-    const result = await signIn(services, "a@example.com", "12345678", null, old.sid);
+    const result = await signIn(services, "a@example.com", "12345678", noClientAddress, old.sid);
 
     expect(result.ok).toBe(true);
     const sid = result.ok ? result.sid : "";
@@ -266,7 +271,7 @@ describe.skipIf(!testRedisURL)("signIn and signOut on the test Redis", () => {
   it("gives the cookie a Max-Age of the 30 days until the session's absolute deadline", async () => {
     const services = testServices(redis.client(), redis.prefix());
     server.use(http.post(`${gatewayOrigin}/auth/login`, () => HttpResponse.json(accessTokenBody(fakeTokens(userId)))));
-    expect(await signIn(services, "a@example.com", "12345678", null, undefined)).toMatchObject({
+    expect(await signIn(services, "a@example.com", "12345678", noClientAddress, undefined)).toMatchObject({
       ok: true,
       maxAge: 30 * 24 * 3600,
     });
@@ -276,7 +281,7 @@ describe.skipIf(!testRedisURL)("signIn and signOut on the test Redis", () => {
     const services = testServices(redis.client(), redis.prefix());
     const logouts = recordLogouts();
     server.use(http.post(`${gatewayOrigin}/auth/login`, () => HttpResponse.json(accessTokenBody(fakeTokens(userId)))));
-    const result = await signIn(services, "a@example.com", "12345678", null, "c".repeat(43));
+    const result = await signIn(services, "a@example.com", "12345678", noClientAddress, "c".repeat(43));
     expect(result.ok).toBe(true);
     expect(logouts).toEqual([]);
   });
@@ -284,7 +289,7 @@ describe.skipIf(!testRedisURL)("signIn and signOut on the test Redis", () => {
   it("returns the failure as form state and creates nothing", async () => {
     const services = testServices(redis.client(), redis.prefix());
     server.use(http.post(`${gatewayOrigin}/auth/login`, () => gatewayProblem(401, "INVALID_CREDENTIALS")));
-    expect(await signIn(services, "a@example.com", "12345678", null, undefined)).toEqual({
+    expect(await signIn(services, "a@example.com", "12345678", noClientAddress, undefined)).toEqual({
       ok: false,
       state: {
         email: "a@example.com",
@@ -302,7 +307,7 @@ describe.skipIf(!testRedisURL)("signIn and signOut on the test Redis", () => {
     const { sid } = await services.store.create(userId, fakeTokens(userId));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     server.use(http.post(`${gatewayOrigin}/auth/logout`, () => gatewayProblem(503, "UNAVAILABLE")));
-    await signOut(services, sid, null);
+    await signOut(services, sid, noClientAddress);
     expect(await services.store.get(sid)).toBeNull();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
@@ -314,7 +319,7 @@ describe.skipIf(!testRedisURL)("signIn and signOut on the test Redis", () => {
     const { sid, session } = await services.store.create(userId, fakeTokens(userId));
     const logouts = recordLogouts();
     clock += 7 * 24 * 3_600_000;
-    await signOut(services, sid, null);
+    await signOut(services, sid, noClientAddress);
     expect(logouts).toEqual([session.refresh_token]);
     expect(await services.store.read(sid)).toBeNull();
   });

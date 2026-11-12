@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { checkDisplayName, type DisplayNameState } from "@/features/profile/display-name";
 import { serverEnv } from "./env";
-import { gatewayClient, retryAfterSeconds } from "./gateway";
+import { clientAddressOf, gatewayClient, retryAfterSeconds } from "./gateway";
 import { bffServices } from "./runtime";
 import { sessionCookieName } from "./session";
 
@@ -47,9 +47,9 @@ async function update(input: FormDataEntryValue | null): Promise<Outcome> {
   if (!services) {
     return { kind: "state", state: stateOf(name, { formError: "UNAVAILABLE" }) };
   }
-  const forwardedFor = (await headers()).get("x-forwarded-for");
+  const address = clientAddressOf(await headers());
   // Redis failing in the middle of the lookup is an answer for the form, not an error page.
-  const access = await services.access.access(sid, forwardedFor).catch(() => null);
+  const access = await services.access.access(sid, address).catch(() => null);
   if (!access) {
     return { kind: "state", state: stateOf(name, { formError: "UNAVAILABLE" }) };
   }
@@ -68,7 +68,7 @@ async function update(input: FormDataEntryValue | null): Promise<Outcome> {
 
   let answer;
   try {
-    answer = await gatewayClient(services.env.gatewayOrigin, session.access_token, forwardedFor).PATCH("/me", {
+    answer = await gatewayClient(services.env.gatewayOrigin, session.access_token, address).PATCH("/me", {
       body: { display_name: name },
       signal: AbortSignal.timeout(updateTimeoutMs),
     });
@@ -84,7 +84,7 @@ async function update(input: FormDataEntryValue | null): Promise<Outcome> {
   if (response.status === 401) {
     // The gateway refuses a token the session just handed out: the session is of no use. Ending it keeps the login
     // page, which sends a logged-in visitor away, from sending the user straight back here.
-    await services.access.end(sid, session, forwardedFor).catch(() => {
+    await services.access.end(sid, session, address).catch(() => {
       // Redis is down: the session stays until its TTL, and the next request tries again.
     });
     return { kind: "login" };

@@ -7,9 +7,18 @@ import type { TokenSet } from "./session";
 // Calls from the BFF to the gateway, typed from the gateway's released contract (gen/api.d.ts). Every call goes to
 // the one gateway origin of GATEWAY_URL; no caller can pass another host.
 
-// X-Forwarded-For is passed on exactly as the web server received it, without adding a hop: in the cluster Envoy
-// writes it and the gateway trusts one hop from the pod range the web pods share, so it reads the element Envoy wrote.
-// Without the header none is sent.
+// X-Forwarded-For and CloudFront-Viewer-Address are passed on exactly as the web server received them, without adding
+// a hop and without reading them: the gateway decides which one it trusts. A header the request lacked is not sent.
+export interface ClientAddress {
+  forwardedFor: string | null;
+  viewerAddress: string | null;
+}
+
+export const noClientAddress: ClientAddress = { forwardedFor: null, viewerAddress: null };
+
+export function clientAddressOf(headers: Pick<Headers, "get">): ClientAddress {
+  return { forwardedFor: headers.get("x-forwarded-for"), viewerAddress: headers.get("cloudfront-viewer-address") };
+}
 
 export type GatewayClient = ReturnType<typeof createClient<paths>>;
 
@@ -18,20 +27,23 @@ export const refreshTimeoutMs = 4000;
 // Register and login hash a password (argon2id), which takes longer than the other calls.
 const authTimeoutMs = 10_000;
 
-export function gatewayHeaders(accessToken: string | null, forwardedFor: string | null): Record<string, string> {
+export function gatewayHeaders(accessToken: string | null, client: ClientAddress): Record<string, string> {
   const headers: Record<string, string> = { Accept: "application/json, application/problem+json" };
   if (accessToken !== null) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
-  if (forwardedFor !== null) {
-    headers["X-Forwarded-For"] = forwardedFor;
+  if (client.forwardedFor !== null) {
+    headers["X-Forwarded-For"] = client.forwardedFor;
+  }
+  if (client.viewerAddress !== null) {
+    headers["CloudFront-Viewer-Address"] = client.viewerAddress;
   }
   return headers;
 }
 
 // A typed client for server code that calls the gateway on behalf of the session's user.
-export function gatewayClient(origin: string, accessToken: string | null, forwardedFor: string | null): GatewayClient {
-  return createClient<paths>({ baseUrl: origin, headers: gatewayHeaders(accessToken, forwardedFor) });
+export function gatewayClient(origin: string, accessToken: string | null, client: ClientAddress): GatewayClient {
+  return createClient<paths>({ baseUrl: origin, headers: gatewayHeaders(accessToken, client) });
 }
 
 const tokenSetSchema = z.object({
@@ -79,12 +91,12 @@ export interface NewAccount {
 }
 
 export interface AuthGateway {
-  login(email: string, password: string, forwardedFor: string | null): Promise<LoginResult>;
-  register(account: NewAccount, forwardedFor: string | null): Promise<RegisterResult>;
+  login(email: string, password: string, address: ClientAddress): Promise<LoginResult>;
+  register(account: NewAccount, address: ClientAddress): Promise<RegisterResult>;
   // Gives up when `deadline` aborts, whether the answer has started to arrive or not.
-  refresh(refreshToken: string, forwardedFor: string | null, deadline: AbortSignal): Promise<RefreshResult>;
+  refresh(refreshToken: string, address: ClientAddress, deadline: AbortSignal): Promise<RefreshResult>;
   // Revokes the token's family; throws when the gateway did not confirm it.
-  logout(refreshToken: string, forwardedFor: string | null): Promise<void>;
+  logout(refreshToken: string, address: ClientAddress): Promise<void>;
 }
 
 const knownFailures: Partial<Record<number, readonly AuthFailureCode[]>> = {
@@ -128,12 +140,12 @@ export function subjectOf(accessToken: string): string | null {
 
 export function createAuthGateway(origin: string, options: { refreshTimeoutMs?: number } = {}): AuthGateway {
   const timeout = options.refreshTimeoutMs ?? refreshTimeoutMs;
-  const client = (forwardedFor: string | null) => gatewayClient(origin, null, forwardedFor);
+  const client = (address: ClientAddress) => gatewayClient(origin, null, address);
 
   return {
-    async login(email, password, forwardedFor) {
+    async login(email, password, address) {
       try {
-        const { data, error, response } = await client(forwardedFor).POST("/auth/login", {
+        const { data, error, response } = await client(address).POST("/auth/login", {
           body: { email, password },
           signal: AbortSignal.timeout(authTimeoutMs),
         });
@@ -148,10 +160,10 @@ export function createAuthGateway(origin: string, options: { refreshTimeoutMs?: 
       }
     },
 
-    async register({ email, password, handle }, forwardedFor) {
+    async register({ email, password, handle }, address) {
       try {
         // No display_name: user-service starts it as the handle.
-        const { error, response } = await client(forwardedFor).POST("/auth/register", {
+        const { error, response } = await client(address).POST("/auth/register", {
           body: { email, password, handle },
           signal: AbortSignal.timeout(authTimeoutMs),
         });
@@ -161,10 +173,10 @@ export function createAuthGateway(origin: string, options: { refreshTimeoutMs?: 
       }
     },
 
-    async refresh(refreshToken, forwardedFor, deadline) {
+    async refresh(refreshToken, address, deadline) {
       try {
         // The signal covers the whole call, connection and body: openapi-fetch reads the body before it returns.
-        const { data, response } = await client(forwardedFor).POST("/auth/refresh", {
+        const { data, response } = await client(address).POST("/auth/refresh", {
           body: { refresh_token: refreshToken },
           signal: AbortSignal.any([deadline, AbortSignal.timeout(timeout)]),
         });
@@ -184,8 +196,8 @@ export function createAuthGateway(origin: string, options: { refreshTimeoutMs?: 
       }
     },
 
-    async logout(refreshToken, forwardedFor) {
-      const { response } = await client(forwardedFor).POST("/auth/logout", {
+    async logout(refreshToken, address) {
+      const { response } = await client(address).POST("/auth/logout", {
         body: { refresh_token: refreshToken },
         signal: AbortSignal.timeout(timeout),
       });
