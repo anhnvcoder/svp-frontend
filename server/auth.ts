@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { chosenHandleSchema, normalizeHandle, type AuthState } from "./auth-state";
-import type { AuthFailure } from "./gateway";
+import type { AuthFailure, ClientAddress } from "./gateway";
 import type { BffServices } from "./runtime";
 
 // Login, register and logout of the BFF, apart from the Next request APIs so
@@ -117,36 +117,36 @@ export async function signIn(
   services: BffServices,
   email: string,
   password: string,
-  forwardedFor: string | null,
+  address: ClientAddress,
   oldSid: string | undefined,
 ): Promise<SignInResult> {
   const { store, gateway } = services;
-  const result = await gateway.login(email, password, forwardedFor);
+  const result = await gateway.login(email, password, address);
   if (!result.ok) {
     return { ok: false, state: failureState(email, result) };
   }
   try {
     if (oldSid) {
-      await signOut(services, oldSid, forwardedFor);
+      await signOut(services, oldSid, address);
     }
     const { sid, session } = await store.create(result.userId, result.tokens);
     return { ok: true, sid, maxAge: store.cookieMaxAgeSeconds(session) };
   } catch {
     // No session could be stored: the new family is of no use to anyone.
-    await gateway.logout(result.tokens.refresh_token, forwardedFor).catch(() => {});
+    await gateway.logout(result.tokens.refresh_token, address).catch(() => {});
     return { ok: false, state: failureState(email, { ok: false, code: "UNAVAILABLE" }) };
   }
 }
 
 // Revokes the session's refresh token family at the gateway (a failure is logged and the logout goes on) and deletes
 // the session, also one past its deadlines that Redis has not dropped yet.
-export async function signOut(services: BffServices, sid: string, forwardedFor: string | null): Promise<void> {
+export async function signOut(services: BffServices, sid: string, address: ClientAddress): Promise<void> {
   const session = await services.store.read(sid);
   if (!session) {
     return;
   }
   try {
-    await services.gateway.logout(session.refresh_token, forwardedFor);
+    await services.gateway.logout(session.refresh_token, address);
   } catch {
     console.warn("gateway logout failed; deleting the session anyway");
   }

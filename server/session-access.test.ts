@@ -2,6 +2,7 @@ import { delay, http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "@/lib/test/msw-server";
 import { SessionStore } from "./session";
+import { noClientAddress } from "./gateway";
 import { SessionAccess } from "./session-access";
 import { accessTokenBody, fakeTokens, gatewayOrigin, gatewayProblem, recordLogouts, testServices } from "./testing/bff";
 import { testRedisURL, useTestRedis } from "./testing/redis";
@@ -78,13 +79,13 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
     const services = testServices(redis.client(), redis.prefix());
     const { sid, session } = await services.store.create(userId, fakeTokens(userId));
     const { calls } = refreshes();
-    expect(await services.access.access(sid, null)).toEqual({ kind: "ok", session });
+    expect(await services.access.access(sid, noClientAddress)).toEqual({ kind: "ok", session });
     expect(calls).toHaveLength(0);
   });
 
   it("is logged out for a sid without a session", async () => {
     const services = testServices(redis.client(), redis.prefix());
-    expect(await services.access.access("a".repeat(43), null)).toEqual({ kind: "none" });
+    expect(await services.access.access("a".repeat(43), noClientAddress)).toEqual({ kind: "none" });
   });
 
   it("10 requests of one process at once on a token due for refresh make exactly one refresh call", async () => {
@@ -92,7 +93,11 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
     const { sid, session } = await services.store.create(userId, fakeTokens(userId, dueSoonMs));
     const { calls } = refreshes();
 
-    const results = await Promise.all(Array.from({ length: 10 }, () => services.access.access(sid, "203.0.113.7")));
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        services.access.access(sid, { forwardedFor: "203.0.113.7", viewerAddress: null }),
+      ),
+    );
 
     expect(calls).toEqual([session.refresh_token]);
     const stored = await services.store.get(sid);
@@ -109,7 +114,7 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
     const { calls } = refreshes(100);
 
     const results = await Promise.all(
-      Array.from({ length: 10 }, (_, i) => (i % 2 === 0 ? a.access : b).access(sid, null)),
+      Array.from({ length: 10 }, (_, i) => (i % 2 === 0 ? a.access : b).access(sid, noClientAddress)),
     );
 
     expect(calls).toHaveLength(1);
@@ -118,18 +123,26 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
     expect(results.every((result) => result.kind === "ok" && result.session.ver === 2)).toBe(true);
   });
 
-  it("sends the X-Forwarded-For it was given to /auth/refresh, unchanged", async () => {
+  it.each([
+    { name: "both headers", address: { forwardedFor: "198.51.100.1, 10.42.0.9", viewerAddress: "198.51.100.1:5000" } },
+    { name: "only X-Forwarded-For", address: { forwardedFor: "198.51.100.1", viewerAddress: null } },
+    { name: "only CloudFront-Viewer-Address", address: { forwardedFor: null, viewerAddress: "[2001:db8::1]:5000" } },
+    { name: "neither", address: noClientAddress },
+  ])("sends $name to /auth/refresh, unchanged", async ({ address }) => {
     const services = testServices(redis.client(), redis.prefix());
     const { sid } = await services.store.create(userId, fakeTokens(userId, dueSoonMs));
-    let forwarded: string | null = null;
+    let seen: { forwardedFor: string | null; viewerAddress: string | null } | undefined;
     server.use(
       http.post(`${gatewayOrigin}/auth/refresh`, ({ request }) => {
-        forwarded = request.headers.get("x-forwarded-for");
+        seen = {
+          forwardedFor: request.headers.get("x-forwarded-for"),
+          viewerAddress: request.headers.get("cloudfront-viewer-address"),
+        };
         return HttpResponse.json(accessTokenBody(fakeTokens(userId)));
       }),
     );
-    await services.access.access(sid, "198.51.100.1, 10.42.0.9");
-    expect(forwarded).toBe("198.51.100.1, 10.42.0.9");
+    await services.access.access(sid, address);
+    expect(seen).toEqual(address);
   });
 
   it("ends the session when the gateway rejects the refresh token (401)", async () => {
@@ -137,7 +150,7 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
     const { sid } = await services.store.create(userId, fakeTokens(userId, dueSoonMs));
     server.use(http.post(`${gatewayOrigin}/auth/refresh`, () => gatewayProblem(401, "INVALID_REFRESH_TOKEN")));
 
-    expect(await services.access.access(sid, null)).toEqual({ kind: "none" });
+    expect(await services.access.access(sid, noClientAddress)).toEqual({ kind: "none" });
     expect(await services.store.get(sid)).toBeNull();
   });
 
@@ -152,7 +165,7 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
       }),
     );
 
-    expect(await services.access.access(sid, null)).toEqual({ kind: "ok", session });
+    expect(await services.access.access(sid, noClientAddress)).toEqual({ kind: "ok", session });
     expect(await services.store.get(sid)).toEqual(session);
     expect(warn).toHaveBeenCalled();
     for (const call of warn.mock.calls) {
@@ -163,7 +176,7 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
     // The first call may have rotated the token after all: the retry with the same token is a replay, which the
     // gateway answers with 401 after revoking the family.
     server.use(http.post(`${gatewayOrigin}/auth/refresh`, () => gatewayProblem(401, "INVALID_REFRESH_TOKEN")));
-    expect(await services.access.access(sid, null)).toEqual({ kind: "none" });
+    expect(await services.access.access(sid, noClientAddress)).toEqual({ kind: "none" });
     expect(await services.store.get(sid)).toBeNull();
   });
 
@@ -178,7 +191,7 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
       }),
     );
 
-    expect(await services.access.access(sid, null)).toEqual({ kind: "expired" });
+    expect(await services.access.access(sid, noClientAddress)).toEqual({ kind: "expired" });
     expect(await services.store.get(sid)).toEqual(session);
   });
 
@@ -193,7 +206,7 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
         return gatewayProblem(503, "UNAVAILABLE");
       }),
     );
-    expect(await services.access.access(sid, null)).toEqual({ kind: "expired" });
+    expect(await services.access.access(sid, noClientAddress)).toEqual({ kind: "expired" });
     expect(calls).toBe(1);
     expect(await services.store.get(sid)).toEqual(session);
   });
@@ -204,7 +217,11 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
     server.use(
       http.post(`${gatewayOrigin}/auth/refresh`, () => gatewayProblem(429, "RATE_LIMITED", { "Retry-After": "7" })),
     );
-    expect(await services.access.access(sid, null)).toEqual({ kind: "unavailable", status: 429, retryAfterSeconds: 7 });
+    expect(await services.access.access(sid, noClientAddress)).toEqual({
+      kind: "unavailable",
+      status: 429,
+      retryAfterSeconds: 7,
+    });
   });
 
   // Lease 5 s, margin 4.3 s: the call is cut off 700 ms at most after the lease was asked for, and the lease is still
@@ -222,15 +239,15 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
       vi.spyOn(console, "warn").mockImplementation(() => {});
       const gateway = hangingSingleUseRefresh([session.refresh_token], () => a.store.lockHeld(sid));
 
-      const first = a.access.access(sid, null);
+      const first = a.access.access(sid, noClientAddress);
       await gateway.firstCallOpen;
       // A request on replica B meanwhile waits for the lease to be free, without calling the gateway.
-      expect(await b.access(sid, null)).toEqual({ kind: "ok", session });
+      expect(await b.access(sid, noClientAddress)).toEqual({ kind: "ok", session });
       expect(gateway.calls).toBe(1);
       // The next request on B takes the free lease and presents the token held. A's call must be over by then: the two
       // never overlap. The gateway had used that token up, so it is a replay and the session ends: the fail-closed choice
       // for an unknown outcome.
-      expect(await b.access(sid, null)).toEqual({ kind: "none" });
+      expect(await b.access(sid, noClientAddress)).toEqual({ kind: "none" });
       expect(gateway.calls).toBe(2);
       expect(gateway.maxOpen).toBe(1);
       expect(await a.store.get(sid)).toBeNull();
@@ -257,7 +274,7 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
       }),
     );
 
-    const refreshing = services.access.access(sid, null);
+    const refreshing = services.access.access(sid, noClientAddress);
     // The session is read again under the lease before the call, so the logout lands while the call is open.
     await started;
     await services.store.delete(sid);
@@ -274,7 +291,7 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
     const { sid, session } = await services.store.create(userId, fakeTokens(userId, dueSoonMs));
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { calls } = refreshes();
-    expect(await services.access.access(sid, null)).toEqual({ kind: "ok", session });
+    expect(await services.access.access(sid, noClientAddress)).toEqual({ kind: "ok", session });
     expect(calls).toHaveLength(0);
     expect(await services.store.lockHeld(sid)).toBe(false);
   });
@@ -286,7 +303,7 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
     const { calls } = refreshes();
 
     const started = Date.now();
-    expect(await services.access.access(sid, null)).toEqual({ kind: "unavailable", status: 503 });
+    expect(await services.access.access(sid, noClientAddress)).toEqual({ kind: "unavailable", status: 503 });
     expect(Date.now() - started).toBeLessThan(1000);
     expect(calls).toHaveLength(0);
   });
@@ -295,14 +312,14 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
     const services = testServices(redis.client(), redis.prefix(), { waitMs: 100, pollMs: 20 });
     const { sid, session } = await services.store.create(userId, fakeTokens(userId, dueSoonMs));
     await services.store.acquireLock(sid, 5000);
-    expect(await services.access.access(sid, null)).toEqual({ kind: "ok", session });
+    expect(await services.access.access(sid, noClientAddress)).toEqual({ kind: "ok", session });
   });
 
   it("end() deletes the session and revokes its family", async () => {
     const services = testServices(redis.client(), redis.prefix());
     const { sid, session } = await services.store.create(userId, fakeTokens(userId));
     const logouts = recordLogouts();
-    await services.access.end(sid, session, null);
+    await services.access.end(sid, session, noClientAddress);
     expect(await services.store.get(sid)).toBeNull();
     expect(logouts).toEqual([session.refresh_token]);
   });
@@ -328,12 +345,12 @@ describe.skipIf(!testRedisURL)("SessionAccess idle and absolute timeouts on the 
     const { calls } = refreshes();
 
     clock = start + 30 * 60_000;
-    expect(await bff.access.access(sid, null)).toEqual({ kind: "ok", session });
+    expect(await bff.access.access(sid, noClientAddress)).toEqual({ kind: "ok", session });
     expect(await bff.store.get(sid)).toEqual(session);
 
     clock = start + hour;
     const touched = { ...session, last_used_at: new Date(clock).toISOString() };
-    expect(await bff.access.access(sid, null)).toEqual({ kind: "ok", session: touched });
+    expect(await bff.access.access(sid, noClientAddress)).toEqual({ kind: "ok", session: touched });
     expect(await bff.store.get(sid)).toEqual(touched);
     expect(calls).toHaveLength(0);
   });
@@ -344,7 +361,7 @@ describe.skipIf(!testRedisURL)("SessionAccess idle and absolute timeouts on the 
     vi.spyOn(bff.store, "touch").mockRejectedValue(new Error("redis gone"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     clock = start + 2 * hour;
-    expect(await bff.access.access(sid, null)).toEqual({ kind: "ok", session });
+    expect(await bff.access.access(sid, noClientAddress)).toEqual({ kind: "ok", session });
     expect(warn).toHaveBeenCalled();
   });
 
@@ -364,7 +381,7 @@ describe.skipIf(!testRedisURL)("SessionAccess idle and absolute timeouts on the 
     }
     const logouts = recordLogouts();
     clock = start + after;
-    expect(await bff.access.access(sid, null)).toEqual({ kind: "none" });
+    expect(await bff.access.access(sid, noClientAddress)).toEqual({ kind: "none" });
     expect(logouts).toEqual([session.refresh_token]);
     expect(await bff.store.read(sid)).toBeNull();
   });
@@ -376,7 +393,7 @@ describe.skipIf(!testRedisURL)("SessionAccess idle and absolute timeouts on the 
     const logouts = recordLogouts();
     clock = start + 2 * hour;
 
-    const refreshing = bff.access.access(sid, null);
+    const refreshing = bff.access.access(sid, noClientAddress);
     await new Promise((resolve) => setTimeout(resolve, 20));
     const touched = await bff.store.touch(sid, session);
     expect(touched).not.toBe(session);

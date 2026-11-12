@@ -1,6 +1,6 @@
 import "server-only";
 import type { NextRequest } from "next/server";
-import { gatewayHeaders } from "./gateway";
+import { clientAddressOf, gatewayHeaders } from "./gateway";
 import { problem } from "./problem";
 import type { BffServices } from "./runtime";
 import { sessionCookieName } from "./session";
@@ -119,11 +119,11 @@ export async function proxyApiRequest(request: NextRequest, services: BffService
   if (!sid) {
     return problem(401, "UNAUTHENTICATED");
   }
-  const forwardedFor = request.headers.get("x-forwarded-for");
+  const address = clientAddressOf(request.headers);
 
   let result;
   try {
-    result = await access.access(sid, forwardedFor);
+    result = await access.access(sid, address);
   } catch {
     return problem(503, "UNAVAILABLE");
   }
@@ -142,7 +142,7 @@ export async function proxyApiRequest(request: NextRequest, services: BffService
 
   const search = query.size > 0 ? `?${query.toString()}` : "";
   const target = new URL(path + search, env.gatewayOrigin);
-  const headers = gatewayHeaders(session.access_token, forwardedFor);
+  const headers = gatewayHeaders(session.access_token, address);
   if (idempotencyKey !== null) {
     headers["Idempotency-Key"] = idempotencyKey;
   }
@@ -168,7 +168,7 @@ export async function proxyApiRequest(request: NextRequest, services: BffService
 
   if (upstream.status === 401) {
     // The gateway refuses a token the session just handed out (fresh or refreshed): the session is of no use.
-    await access.end(sid, session, forwardedFor).catch(() => {
+    await access.end(sid, session, address).catch(() => {
       // Redis is down: the session stays until its TTL, and the next request tries again.
     });
   }

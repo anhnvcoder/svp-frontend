@@ -2,6 +2,7 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { serverEnv } from "./env";
+import { clientAddressOf } from "./gateway";
 import { pathHeader } from "./request-headers";
 import { bffServices } from "./runtime";
 import { sessionCookieName } from "./session";
@@ -22,7 +23,7 @@ async function currentAccess(): Promise<AccessResult> {
     return { kind: "none" };
   }
   const { access } = await bffServices();
-  return access.access(sid, (await headers()).get("x-forwarded-for"));
+  return access.access(sid, clientAddressOf(await headers()));
 }
 
 // Longest wait a rate limit page counts down, so an odd Retry-After never shows hours.

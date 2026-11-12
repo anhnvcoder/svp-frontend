@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { signOut } from "@/server/auth";
 import { serverEnv } from "@/server/env";
+import { clientAddressOf } from "@/server/gateway";
 import { bffServices } from "@/server/runtime";
 import { serializeSessionCookie, sessionCookieName } from "@/server/session";
 
@@ -13,7 +14,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const sid = request.cookies.get(sessionCookieName(secure))?.value;
   if (sid) {
     try {
-      await signOut(await bffServices(), sid, request.headers.get("x-forwarded-for"));
+      await signOut(await bffServices(), sid, clientAddressOf(request.headers));
     } catch {
       // Redis is down: the cookie still goes, and the session ends with its TTL.
       console.warn("deleting the session failed at logout");

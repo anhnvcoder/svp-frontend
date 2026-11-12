@@ -3,7 +3,7 @@ import { cookies, headers } from "next/headers";
 import { cache } from "react";
 import { z } from "zod";
 import { serverEnv } from "./env";
-import { gatewayClient } from "./gateway";
+import { clientAddressOf, gatewayClient } from "./gateway";
 import { bffServices } from "./runtime";
 import { sessionCookieName } from "./session";
 
@@ -37,12 +37,12 @@ export const loadMyProfile = cache(async (options: { timeoutMs?: number } = {}):
   }
   try {
     const { env, access } = await bffServices();
-    const forwardedFor = (await headers()).get("x-forwarded-for");
-    const result = await access.access(sid, forwardedFor);
+    const address = clientAddressOf(await headers());
+    const result = await access.access(sid, address);
     if (result.kind !== "ok") {
       return null;
     }
-    const client = gatewayClient(env.gatewayOrigin, result.session.access_token, forwardedFor);
+    const client = gatewayClient(env.gatewayOrigin, result.session.access_token, address);
     const { data, response } = await client.GET("/me", {
       signal: AbortSignal.timeout(options.timeoutMs ?? meTimeoutMs),
     });

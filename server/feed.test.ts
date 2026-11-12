@@ -62,7 +62,11 @@ describe.skipIf(!testRedisURL)("first feed page on the test Redis", () => {
 
   beforeEach(() => {
     request.cookies.clear();
-    request.headers = new Headers({ "x-svp-path": "/following?x=1", "x-forwarded-for": "203.0.113.7" });
+    request.headers = new Headers({
+      "x-svp-path": "/following?x=1",
+      "x-forwarded-for": "203.0.113.7",
+      "cloudfront-viewer-address": "203.0.113.7:4711",
+    });
     request.services = testServices(redis.client(), redis.prefix());
   });
 
@@ -85,6 +89,7 @@ describe.skipIf(!testRedisURL)("first feed page on the test Redis", () => {
     expect(first.fetchedAt).toBeLessThanOrEqual(Date.now());
     expect(seen?.headers.get("authorization")).toBe(`Bearer ${tokens.access_token}`);
     expect(seen?.headers.get("x-forwarded-for")).toBe("203.0.113.7");
+    expect(seen?.headers.get("CloudFront-Viewer-Address")).toBe("203.0.113.7:4711");
     const text = JSON.stringify(first);
     expect(text).not.toContain(tokens.access_token);
     expect(text).not.toContain(tokens.refresh_token);

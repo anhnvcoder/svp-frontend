@@ -61,7 +61,7 @@ async function redirectTarget(run: Promise<unknown>): Promise<string> {
 
 beforeEach(() => {
   request.cookies.clear();
-  request.headers = new Headers({ "x-forwarded-for": "203.0.113.5" });
+  request.headers = new Headers({ "x-forwarded-for": "203.0.113.5", "CloudFront-Viewer-Address": "203.0.113.5:4711" });
   request.services = undefined;
 });
 
@@ -116,10 +116,10 @@ describe.skipIf(!testRedisURL)("auth actions on the test Redis", () => {
   });
 
   it("loginAction sets the session cookie and redirects to the checked next", async () => {
-    let forwarded: string | null = null;
+    let forwarded: (string | null)[] = [];
     server.use(
       http.post(`${gatewayOrigin}/auth/login`, ({ request: call }) => {
-        forwarded = call.headers.get("x-forwarded-for");
+        forwarded = [call.headers.get("x-forwarded-for"), call.headers.get("cloudfront-viewer-address")];
         return HttpResponse.json(accessTokenBody(fakeTokens(userId)));
       }),
     );
@@ -129,7 +129,7 @@ describe.skipIf(!testRedisURL)("auth actions on the test Redis", () => {
     );
 
     expect(target).toBe("/following?tab=1");
-    expect(forwarded).toBe("203.0.113.5");
+    expect(forwarded).toEqual(["203.0.113.5", "203.0.113.5:4711"]);
     const cookie = request.cookies.get("svp_sid");
     expect(cookie?.options).toEqual({ httpOnly: true, secure: false, path: "/", sameSite: "lax", maxAge: 2_592_000 });
     expect(await request.services!.store.get(cookie!.value)).toMatchObject({ user_id: userId });
@@ -179,6 +179,38 @@ describe.skipIf(!testRedisURL)("auth actions on the test Redis", () => {
       retryAfterSeconds: 30,
     });
     expect(request.cookies.size).toBe(0);
+  });
+
+  it.each([
+    { name: "both headers", forwardedFor: "203.0.113.5", viewerAddress: "203.0.113.5:4711" },
+    { name: "only CloudFront-Viewer-Address", forwardedFor: null, viewerAddress: "[2001:db8::1]:4711" },
+    { name: "only X-Forwarded-For", forwardedFor: "203.0.113.5", viewerAddress: null },
+    { name: "neither header", forwardedFor: null, viewerAddress: null },
+  ])("registerAction and its login send $name as the request had them", async ({ forwardedFor, viewerAddress }) => {
+    request.headers = new Headers();
+    if (forwardedFor) request.headers.set("x-forwarded-for", forwardedFor);
+    if (viewerAddress) request.headers.set("cloudfront-viewer-address", viewerAddress);
+    const seen: { forwardedFor: string | null; viewerAddress: string | null }[] = [];
+    const record = (call: Request) =>
+      seen.push({
+        forwardedFor: call.headers.get("x-forwarded-for"),
+        viewerAddress: call.headers.get("cloudfront-viewer-address"),
+      });
+    server.use(
+      http.post(`${gatewayOrigin}/auth/register`, ({ request: call }) => {
+        record(call);
+        return HttpResponse.json({ user_id: userId }, { status: 201 });
+      }),
+      http.post(`${gatewayOrigin}/auth/login`, ({ request: call }) => {
+        record(call);
+        return HttpResponse.json(accessTokenBody(fakeTokens(userId)));
+      }),
+    );
+    await redirectTarget(
+      registerAction(initialAuthState, form({ email: "a@example.com", password: "12345678", handle: "minhanh" })),
+    );
+    const expected = { forwardedFor, viewerAddress };
+    expect(seen).toEqual([expected, expected]);
   });
 
   it("registerAction registers with the normalized handle, then logs in with the same credentials", async () => {

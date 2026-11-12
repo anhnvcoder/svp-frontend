@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { checkCredentials, checkRegistration, failureState, safeNext, signIn } from "./auth";
 import type { AuthState } from "./auth-state";
+import { clientAddressOf } from "./gateway";
 import { bffServices } from "./runtime";
 import { sessionCookieName, sessionCookieOptions } from "./session";
 
@@ -34,8 +35,8 @@ export async function registerAction(_previous: AuthState, form: FormData): Prom
   if (!services) {
     return failureState(email, { ok: false, code: "UNAVAILABLE" }, handle);
   }
-  const forwardedFor = (await headers()).get("x-forwarded-for");
-  const registered = await services.gateway.register({ email, password, handle }, forwardedFor);
+  const address = clientAddressOf(await headers());
+  const registered = await services.gateway.register({ email, password, handle }, address);
   if (!registered.ok) {
     return failureState(email, registered, handle);
   }
@@ -49,14 +50,8 @@ async function startSession(email: string, password: string, next: FormDataEntry
   }
   const { secure, appOrigin } = services.env;
   const cookieStore = await cookies();
-  const forwardedFor = (await headers()).get("x-forwarded-for");
-  const result = await signIn(
-    services,
-    email,
-    password,
-    forwardedFor,
-    cookieStore.get(sessionCookieName(secure))?.value,
-  );
+  const address = clientAddressOf(await headers());
+  const result = await signIn(services, email, password, address, cookieStore.get(sessionCookieName(secure))?.value);
   if (!result.ok) {
     return result.state;
   }

@@ -67,7 +67,12 @@ async function redirectTarget(run: Promise<unknown>): Promise<string> {
 
 // Records each PATCH /me and answers it.
 function patchServer(answer: (name: string) => Response = (name) => HttpResponse.json(profileWith(name))) {
-  const calls: { body: unknown; authorization: string | null; forwardedFor: string | null }[] = [];
+  const calls: {
+    body: unknown;
+    authorization: string | null;
+    forwardedFor: string | null;
+    viewerAddress: string | null;
+  }[] = [];
   server.use(
     http.patch(`${gatewayOrigin}/me`, async ({ request: call }) => {
       const body = (await call.json()) as { display_name: string };
@@ -75,6 +80,7 @@ function patchServer(answer: (name: string) => Response = (name) => HttpResponse
         body,
         authorization: call.headers.get("authorization"),
         forwardedFor: call.headers.get("x-forwarded-for"),
+        viewerAddress: call.headers.get("cloudfront-viewer-address"),
       });
       return answer(body.display_name);
     }),
@@ -86,7 +92,7 @@ const profileWith = (name: string) => ({ user_id: userId, handle: "lanphuong", d
 
 beforeEach(() => {
   request.cookies.clear();
-  request.headers = new Headers({ "x-forwarded-for": "203.0.113.9" });
+  request.headers = new Headers({ "x-forwarded-for": "203.0.113.9", "cloudfront-viewer-address": "203.0.113.9:4711" });
   request.services = undefined;
   request.refreshes = 0;
 });
@@ -158,6 +164,7 @@ describe.skipIf(!testRedisURL)("updateDisplayNameAction on the test Redis", () =
         body: { display_name: "Lan Phương" },
         authorization: `Bearer ${tokens.access_token}`,
         forwardedFor: "203.0.113.9",
+        viewerAddress: "203.0.113.9:4711",
       },
     ]);
     expect(request.refreshes).toBe(1);
