@@ -1,10 +1,10 @@
 # The web image of this repository: built, scanned and gated BEFORE anything is pushed, pushed as scanned, signed and
-# attested keyless, promoted to stg through a pull request in svp-gitops, rescanned daily. Build, scan, join and sign
-# are the backend's composite actions (./.backend/.github/actions/<name>, pinned by .backend-commit); their steps run
-# in the calling job, so the signature and provenance name this workflow. Public repository, so: no pull_request_target
-# or workflow_run; permissions: {} with each job declaring its own, pull request jobs only contents: read, write jobs
-# only on main; actions pinned to a full commit SHA, checkout without a persisted token; untrusted values reach scripts
-# through env:, never ${{ }}.
+# attested keyless, copied with its bundles to ECR stg, promoted to stg through a pull request in svp-gitops, rescanned
+# daily. Build, scan, join and sign are the backend's composite actions (./.backend/.github/actions/<name>, pinned by
+# .backend-commit); their steps run in the calling job, so the signature and provenance name this workflow. Public
+# repository: no pull_request_target or workflow_run; permissions: {}, each job its own, pull request jobs only
+# contents: read; write jobs and AWS roles (OIDC: release by main, rescan by environment ecr-rescan) only on main;
+# actions pinned to a full commit SHA, checkout without a persisted token; untrusted values reach scripts via env: only.
 # Design notes: README.md.
 name: images
 
@@ -26,6 +26,23 @@ on:
         description: "Rescan the released web digests now and replace their vuln attestations"
         type: boolean
         default: false
+      values_ref:
+        description: "With rescan: also the web digests svp-gitops names at this branch, SHA or refs/pull/<n>/head (a rollback)"
+        type: string
+        default: ""
+      digest:
+        description: "With rescan and image: rescan only this release, which no svp-gitops ref names under envs/<env>/ yet, and refresh it in the ECR of env"
+        type: string
+        default: ""
+      image:
+        description: "With digest: the image of this repository whose release it is (web)"
+        type: string
+        default: ""
+      env:
+        description: "With digest: the environment whose ECR holds the release (stg: also copy what it misses there)"
+        type: choice
+        options: [stg, prd]
+        default: stg
 
 permissions: {}
 
@@ -54,6 +71,7 @@ jobs:
       images: ${{ steps.plan.outputs.images }}
       legs: ${{ steps.plan.outputs.legs }}
       has_images: ${{ steps.plan.outputs.has_images }}
+      values_ref: ${{ steps.plan.outputs.values_ref }}
     steps:
       - &checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -62,6 +80,20 @@ jobs:
       # The backend at .backend-commit, anonymously over HTTPS: no token, no secret.
       - &backend
         run: make backend-checkout
+      - name: digest, image and env go with rescan only
+        env:
+          INPUT_RESCAN: ${{ inputs.rescan }}
+          INPUT_VALUES_REF: ${{ inputs.values_ref }}
+          INPUT_DIGEST: ${{ inputs.digest }}
+          INPUT_IMAGE: ${{ inputs.image }}
+          INPUT_ENV: ${{ inputs.env }}
+        run: |
+          if [ -n "$INPUT_DIGEST$INPUT_IMAGE" ] || [ "${INPUT_ENV:-stg}" != stg ]; then
+            if [ "$INPUT_RESCAN" != true ] || [ -z "$INPUT_DIGEST" ] || [ -z "$INPUT_IMAGE" ] || [ -n "$INPUT_VALUES_REF" ]; then
+              echo "::error::digest, image and env rescan one release: dispatch them with rescan=true, both digest and image, no values_ref"
+              exit 1
+            fi
+          fi
       - id: plan
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -69,6 +101,7 @@ jobs:
           PR_BASE_REF: ${{ github.base_ref }}
           INPUT_SERVICES: ${{ inputs.services }}
           INPUT_RESCAN: ${{ inputs.rescan }}
+          INPUT_VALUES_REF: ${{ inputs.values_ref }}
         run: .backend/deploy/ci/plan.sh
 
   build-nopush:
@@ -154,8 +187,8 @@ jobs:
   sign:
     # The action refuses to sign unless the run's workflow is the subject of this repository's release source
     # (images.yml on refs/heads/main), the identity Kyverno admits for web from here, and writes a bundle only when the
-    # digest has none of its type (a run started again signs nothing twice). The only build-path job with id-token:
-    # write and attestations: write; it uses no cache.
+    # digest has none of its type (a run started again signs nothing twice). The only build-path job with
+    # attestations: write; id-token: write here and in ecr-copy; it uses no cache.
     needs: [plan, merge]
     if: >-
       ${{ !cancelled() && needs.plan.outputs.mode == 'build' && needs.plan.outputs.has_images == 'true'
@@ -180,12 +213,77 @@ jobs:
           code-root: ${{ github.workspace }}
           out: ${{ runner.temp }}/sign
 
+  ecr-copy:
+    # Copies the signed release, same digest, with its signature and attestations to ECR stg and verifies it there;
+    # only then uploads ecr-<image>, what promote releases. id-token: write for the AWS release role (subject: main);
+    # no GitHub write, no cache. A missing account ID secret fails here, naming it.
+    needs: [plan, sign]
+    if: >-
+      ${{ !cancelled() && needs.plan.outputs.mode == 'build' && needs.plan.outputs.has_images == 'true'
+      && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
+    steps:
+      - *checkout
+      - *backend
+      - name: Secret SVP_AWS_STG_ACCOUNT_ID is set
+        env:
+          ACCOUNT: ${{ secrets.SVP_AWS_STG_ACCOUNT_ID }}
+        run: |
+          [ -n "$ACCOUNT" ] || {
+            echo "::error::Secret SVP_AWS_STG_ACCOUNT_ID is not set: nothing is copied to ECR stg, nothing promoted"
+            exit 1
+          }
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.SVP_AWS_STG_ACCOUNT_ID }}:role/svp-ci-ecr-release-frontend
+          aws-region: ap-southeast-1
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+          aws-profile: svp-stg
+      # ecr-copy.sh verifies with the cosign on PATH.
+      - &cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-${{ matrix.image }}
+          path: ${{ runner.temp }}/release
+      - name: Copy to ECR stg and verify there
+        env:
+          AWS_PROFILE: svp-stg
+          DOCKER_CONFIG: ${{ runner.temp }}/docker
+          REGISTRY: ${{ secrets.SVP_AWS_STG_ACCOUNT_ID }}.dkr.ecr.ap-southeast-1.amazonaws.com
+          RELEASE: ${{ runner.temp }}/release
+        run: |
+          set -euo pipefail
+          mkdir -p "$DOCKER_CONFIG"
+          aws ecr get-login-password --region ap-southeast-1 | docker login --username AWS --password-stdin "$REGISTRY"
+          .backend/deploy/ci/ecr-copy.sh copy "$(cat "$RELEASE/repository")" "$(cat "$RELEASE/digest")" "$REGISTRY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ecr-${{ matrix.image }}
+          path: |
+            ${{ runner.temp }}/release/repository
+            ${{ runner.temp }}/release/tag
+            ${{ runner.temp }}/release/digest
+          if-no-files-found: error
+          retention-days: 7
+
   promote:
-    # Promotes web to stg in svp-gitops: a bot commit on bot/promote-stg-web, a pull request with auto-merge once
-    # gitops-ok is green (no code owner owns envs/stg/); never envs/stg/charts.yaml, the charts are the backend's.
+    # Promotes web, copied to ECR stg and verified there, to stg in svp-gitops: a bot commit on bot/promote-stg-web, a
+    # pull request with auto-merge once gitops-ok is green (no code owner owns envs/stg/); never envs/stg/charts.yaml.
     # Environment promote (main only) holds the key of the App on svp-gitops alone, a one-hour token; no pull request
     # job names it. The step refuses a run older than the release stg names (by ancestry), so stg never moves back.
-    needs: [plan, sign]
+    needs: [plan, ecr-copy]
     if: >-
       ${{ !cancelled() && needs.plan.outputs.mode == 'build' && needs.plan.outputs.has_images == 'true'
       && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
@@ -203,7 +301,7 @@ jobs:
       - *backend
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: release-*
+          pattern: ecr-*
           path: ${{ runner.temp }}/releases
       - id: app
         # Revoked when the job ends. Only the repository svp-gitops and only the two permissions the pull request needs.
@@ -245,11 +343,11 @@ jobs:
           }
           code=$PWD repo=anhnvcoder/svp-gitops branch=bot/promote-stg-web app=svp-web-promoter
           file=envs/stg/images/web.yaml image=ghcr.io/anhnvcoder/svp-frontend/web
-          # The release this run signed: none when signing failed (no artifact, not even the directory), never more
-          # than one.
+          # The release this run signed and verified in ECR stg: none when signing or the copy failed (no artifact,
+          # not even the directory), never more than one.
           found=$(find "$RUNNER_TEMP/releases" -type f -name digest 2>/dev/null | sort) || found=
           if [ -z "$found" ]; then
-            echo "No release was signed in this run: nothing to promote."
+            echo "No release was signed and copied to ECR stg in this run: nothing to promote."
             exit 0
           fi
           [[ $found != *$'\n'* ]] || fail "more than one release in this run: ${found//$'\n'/ }"
@@ -294,7 +392,7 @@ jobs:
 
           ## Đã kiểm gì
 
-          - [Lượt CI]($RUN_URL) đã build và ký image trên.
+          - [Lượt CI]($RUN_URL) đã build và ký image trên, rồi chép nó cùng chữ ký, attestation sang ECR stg và kiểm lại ở đó.
           - Check \`gitops-ok\` của \`svp-gitops\` chạy trên PR này: image ghim digest, có chữ ký, kết quả quét lỗ hổng còn hạn
             và provenance khớp commit.
           - PR tự merge (squash) khi \`gitops-ok\` xanh. \`envs/stg/\` không có Code Owner nên không cần ai duyệt.
@@ -323,16 +421,17 @@ jobs:
           gh pr merge "$now" --repo "$repo" --auto --squash --match-head-commit "$(git rev-parse HEAD)"
 
   rescan:
-    # Every web digest svp-gitops names is scanned again, manifest by manifest, and its vuln attestation replaced with
-    # the real result; a CRITICAL is recorded first, then fails the job; a secret fails it before anything is attested.
-    # --source web makes rescan.sh check that this run is of this repository's release source before it reads anything,
-    # so it never replaces another repository's attestation. svp-gitops is read as data, never run. No cache: id-token.
+    # Every web digest svp-gitops names is scanned again per manifest, its vuln attestation replaced, then in the ECR of
+    # each env naming it (that account's rescan role, environment ecr-rescan); a CRITICAL is recorded, then fails the
+    # job; a secret fails it before anything is attested. --source web: rescan.sh first checks this run is of this
+    # repository's release source, never replacing another's attestation. svp-gitops is data, never run. No cache.
     needs: plan
     if: >-
       ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.mode == 'rescan'
       && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    environment: ecr-rescan
     permissions:
       contents: read
       packages: write
@@ -342,19 +441,58 @@ jobs:
     steps:
       - *checkout
       - *backend
-      # rescan.sh runs the cosign on PATH.
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Secrets SVP_AWS_STG_ACCOUNT_ID and SVP_AWS_PRD_ACCOUNT_ID are set
+        env:
+          STG: ${{ secrets.SVP_AWS_STG_ACCOUNT_ID }}
+          PRD: ${{ secrets.SVP_AWS_PRD_ACCOUNT_ID }}
+        run: |
+          [ -n "$STG" ] || echo "::error::Secret SVP_AWS_STG_ACCOUNT_ID is not set: ECR stg cannot be refreshed"
+          [ -n "$PRD" ] || echo "::error::Secret SVP_AWS_PRD_ACCOUNT_ID is not set: ECR prd cannot be refreshed"
+          [ -n "$STG" ] && [ -n "$PRD" ]
+      # Two accounts in one job: each role as its own AWS profile, picked per ECR by rescan.sh.
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          cosign-release: v3.1.4
+          role-to-assume: arn:aws:iam::${{ secrets.SVP_AWS_STG_ACCOUNT_ID }}:role/svp-ci-ecr-rescan-frontend
+          aws-region: ap-southeast-1
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+          aws-profile: svp-stg
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.SVP_AWS_PRD_ACCOUNT_ID }}:role/svp-ci-ecr-rescan-frontend
+          aws-region: ap-southeast-1
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+          aws-profile: svp-prd
+      # rescan.sh and ecr-copy.sh run the cosign on PATH.
+      - *cosign
       - run: make -C .backend gitops-clone
-      - name: Rescan and attest
+      - name: Rescan and attest, then refresh the copies in ECR
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          VALUES_REF: ${{ needs.plan.outputs.values_ref }}
           SVP_TRIVY_CACHE: ${{ runner.temp }}/trivy-cache
+          DOCKER_CONFIG: ${{ runner.temp }}/docker
+          SVP_ECR_REGISTRY_STG: ${{ secrets.SVP_AWS_STG_ACCOUNT_ID }}.dkr.ecr.ap-southeast-1.amazonaws.com
+          SVP_ECR_REGISTRY_PRD: ${{ secrets.SVP_AWS_PRD_ACCOUNT_ID }}.dkr.ecr.ap-southeast-1.amazonaws.com
+          DIGEST: ${{ inputs.digest }}
+          IMAGE: ${{ inputs.image }}
+          RESCAN_ENV: ${{ inputs.env }}
         run: |
+          set -euo pipefail
+          mkdir -p "$DOCKER_CONFIG"
           printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          .backend/deploy/ci/rescan.sh run --source web "$RUNNER_TEMP/rescan" "$SVP_GITOPS_DIR"
+          for e in stg prd; do
+            registry=SVP_ECR_REGISTRY_${e^^}
+            aws ecr get-login-password --profile "svp-$e" --region ap-southeast-1 |
+              docker login --username AWS --password-stdin "${!registry}"
+          done
+          if [ -n "$DIGEST" ]; then
+            .backend/deploy/ci/rescan.sh run-digest --source web "$RUNNER_TEMP/rescan" "$IMAGE" "$DIGEST" "$RESCAN_ENV"
+          else
+            .backend/deploy/ci/rescan.sh run --source web "$RUNNER_TEMP/rescan" "$SVP_GITOPS_DIR" "$VALUES_REF"
+          fi
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -438,6 +576,7 @@ jobs:
       - build
       - merge
       - sign
+      - ecr-copy
       - promote
       - rescan
     if: always()
@@ -458,7 +597,7 @@ jobs:
           skip_ok() {
             case $1 in
             build-nopush) [ "$main" = true ] || [ "$MODE" != build ] || [ "$HAS_IMAGES" != true ] ;;
-            build | merge | sign | promote) [ "$main" != true ] || [ "$MODE" != build ] || [ "$HAS_IMAGES" != true ] ;;
+            build | merge | sign | ecr-copy | promote) [ "$main" != true ] || [ "$MODE" != build ] || [ "$HAS_IMAGES" != true ] ;;
             rescan) [ "$MODE" != rescan ] ;;
             *) false ;;
             esac

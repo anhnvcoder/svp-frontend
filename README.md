@@ -208,7 +208,7 @@ test e2e theo vùng code: [`docs/architecture.md`](docs/architecture.md#test-e2e
 
 `.backend-commit` là chỗ duy nhất ghim commit backend mà repo này dùng composite action của pipeline image (`.github/actions/image-leg`,
 `image-index`, `image-sign`: build, quét, cổng, đẩy, gộp index, ký và attest SBOM, `vuln`, provenance), script CI (`deploy/ci/`: `plan.sh`,
-luật file ngoại lệ, rescan, helper của job `promote`) và công cụ ghim digest trong `Makefile` của nó (cả `YQ_IMAGE` của bước promote). `make backend-checkout` đưa `.backend/` (gitignore) về đúng commit đó, chỉ tải khi commit
+luật file ngoại lệ, rescan, `ecr-copy.sh`, helper của job `promote`) và công cụ ghim digest trong `Makefile` của nó (cả `YQ_IMAGE` của bước promote). `make backend-checkout` đưa `.backend/` (gitignore) về đúng commit đó, chỉ tải khi commit
 đổi; `.backend/` có thay đổi chưa commit thì dừng. Renovate theo dõi `main` của backend và mở PR nâng commit.
 
 `scripts/backend.sh` là nơi đọc hai bản clone của backend (`anhnvcoder/svp-backend`) và commit backend mà stg chạy; repo này chỉ đọc chúng,
@@ -226,8 +226,9 @@ không bao giờ ghi:
 `Dockerfile` ở gốc repo, context là gốc repo (`.dockerignore` loại `node_modules`, output build, `.env*`, `.git`, `.backend/` và
 công cụ của repo). Image chạy server standalone của Next trên Node distroless; source map trình duyệt không vào image, nằm ở stage
 `sourcemaps` (`make sourcemaps`, `make k8s-sourcemaps` tải lên GlitchTip của stack local). Build, quét, ký image phát hành chạy trong CI
-của repo này bằng composite action của backend ở `.backend-commit`; promote lên stg là bước `yq` + `gh` của chính job `promote` (helper `yq_`,
-`promote_open_pr`, `promote_image_row` của `deploy/ci/common.sh` ở commit ghim).
+của repo này bằng composite action của backend ở `.backend-commit`; bản đã ký được chép cùng digest sang ECR stg (`deploy/ci/ecr-copy.sh` ở
+commit ghim); promote lên stg là bước `yq` + `gh` của chính job `promote` (helper `yq_`, `promote_open_pr`, `promote_image_row` của
+`deploy/ci/common.sh` ở commit ghim).
 
 Build image:
 
@@ -319,18 +320,32 @@ Từng workflow, ruleset và Renovate:
   `build` (trivy chặn bí mật và CRITICAL còn lại sau `.trivyignore.yaml`, grype trên SBOM chặn Critical còn lại sau `.grype.yaml`,
   rồi mới push), `merge` (index đa kiến trúc), `sign` (cosign keyless:
   chữ ký, SBOM, attestation `vuln` ở dạng Sigstore bundle; rồi build provenance bằng `actions/attest`, quyền `attestations: write` chỉ ở
-  job này), `promote` (environment `promote`, token một giờ của GitHub App `svp-web-promoter` chỉ
+  job này), `ecr-copy` (chép bản đã ký cùng mọi referrer sang ECR stg rồi kiểm lại ở đó), `promote` (environment `promote`, token một giờ
+  của GitHub App `svp-web-promoter` chỉ
   trên `svp-gitops`: clone `svp-gitops`, dựng nhánh `bot/promote-stg-web` một commit của bot trên `main`, `yq_ -i` (yq theo
   `YQ_IMAGE` ghim digest trong `Makefile` của backend ở `.backend-commit`, không mạng) đúng khối `image` của
   `envs/stg/images/web.yaml` (không bao giờ `envs/stg/charts.yaml`), từ chối commit cũ hơn bản web mà `main` hay PR đang mở ghi (so tổ
   tiên), push `--force-with-lease`, `gh pr create`/`edit`, `gh pr merge --auto --squash --match-head-commit`: PR tự merge khi
   `gitops-ok` xanh), `rescan`
-  (lịch hằng ngày: quét lại và attest lại bản web của repo này đang ở `envs/*/images/`, không đụng bản của backend), `sarif`, check
-  tổng `images-ok`.
+  (lịch hằng ngày: quét lại và attest lại bản web của repo này đang ở `envs/*/images/`, không đụng bản của backend, rồi làm mới bản sao ở
+  ECR), `sarif`, check tổng `images-ok`.
   - Luồng: image `ghcr.io/anhnvcoder/svp-frontend/web` build mỗi lượt từ cả cây trên runner amd64 và arm64 gốc; image cục bộ quét bằng trivy và
     SBOM bằng grype, chặn bí mật và CRITICAL **trước** khi đẩy gì; chỉ đẩy đúng cái đã quét, rồi ghép index đa kiến trúc, ký keyless bằng cosign,
-    attest SBOM (syft) và kết quả quét, sau đó build provenance (`actions/attest`), tất cả là Sigstore bundle; digest đã ký được promote lên stg
-    qua PR ở `svp-gitops`, và digest đã phát hành được quét lại hằng ngày.
+    attest SBOM (syft) và kết quả quét, sau đó build provenance (`actions/attest`), tất cả là Sigstore bundle; digest đã ký được chép sang ECR
+    stg, kiểm lại ở đó, rồi mới được promote lên stg qua PR ở `svp-gitops`; digest đã phát hành được quét lại hằng ngày, cả bản sao ở ECR. Lý do
+    dùng ECR và role CI: [ADR-0062](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0062-ecr-registry-ci-oidc.md).
+
+    ```mermaid
+    flowchart LR
+      build["build, merge"] -->|push theo digest| ghcr[("GHCR")]
+      sign -->|"chữ ký, SBOM, vuln, provenance"| ghcr
+      ghcr -->|"ecr-copy: ecr-copy.sh copy"| ecr[("ECR stg")]
+      ecr -->|"verify đạt: artifact ecr-web"| promote
+      promote -->|"PR bot/promote-stg-web"| gitops["svp-gitops envs/stg"]
+      rescan -->|"vuln mới"| ghcr
+      rescan -->|"ecr-copy.sh refresh"| ecrs[("ECR của env nêu digest")]
+    ```
+
   - Một lần ghim cho cả bộ: action, guard của chúng (`deploy/ci/image-guard.sh` cạnh chúng) và image công cụ mà `Makefile` của backend ghim digest
     đi cùng `.backend-commit`. Input `code-root`, và `SVP_CODE_ROOT` cho script backend mà file này chạy (`deploy/ci/plan.sh`,
     `deploy/ci/rescan.sh`), báo rằng code được build và phát hành là checkout này chứ không phải của backend: chúng lấy nguồn phát hành có
@@ -340,32 +355,52 @@ Từng workflow, ruleset và Renovate:
     ngay ở đây, dùng ba helper của `deploy/ci/common.sh` ở backend: `yq_`, `promote_open_pr`, `promote_image_row`.
   - Quyền: chỉ job `promote` ghi vào repo khác. Environment `promote` (nhánh triển khai chỉ `main`) giữ khoá GitHub App `svp-web-promoter` cài
     riêng trên `svp-gitops`; job đổi khoá thành token một giờ cho `svp-gitops` với quyền `contents` và `pull-requests` write, thu hồi khi job kết
-    thúc; `GITHUB_TOKEN` chỉ đọc repo này; không `id-token`, không `packages`. Không job PR nào gọi environment đó hay đọc secret. Chỉ dùng action
-    của GitHub, `sigstore/cosign-installer` và composite action của backend dưới `.backend/.github/actions/` (ghim bởi `.backend-commit`; chúng chỉ
-    gọi action của GitHub ở SHA chúng ghim). Không job nào đẩy vào repo này nên checkout không giữ token.
+    thúc; `GITHUB_TOKEN` chỉ đọc repo này; không `id-token`, không `packages`. Không job PR nào gọi environment đó hay đọc secret. Role AWS đi
+    qua OIDC của GitHub (`aws-actions/configure-aws-credentials`, phiên một giờ): `ecr-copy` nhận `svp-ci-ecr-release-frontend` của account stg
+    (trust chỉ `ref:refs/heads/main` của repo này), `rescan` nhận `svp-ci-ecr-rescan-frontend` của stg và prd (trust chỉ environment
+    `ecr-rescan`, nhánh `main`, không người duyệt vì chạy theo lịch); mỗi role chỉ đẩy (rescan: thêm xoá) repo ECR `svp-frontend/web`. Account ID
+    đến từ secret `SVP_AWS_STG_ACCOUNT_ID`, `SVP_AWS_PRD_ACCOUNT_ID` nên bị che trong log; thiếu secret thì job đỏ, nêu tên nó. Chỉ dùng action
+    của GitHub, `sigstore/cosign-installer`, `aws-actions/configure-aws-credentials` và composite action của backend dưới
+    `.backend/.github/actions/` (ghim bởi `.backend-commit`; chúng chỉ gọi action của GitHub ở SHA chúng ghim). Không job nào đẩy vào repo này
+    nên checkout không giữ token.
   - `sign`: chữ ký keyless trên digest của index, attestation SBOM trên từng manifest, attestation `vuln` (cả hai lượt quét) trên index, với cosign
     mà `Makefile` của backend ghim; rồi build provenance (SLSA v1, `actions/attest` dựng từ claim của token OIDC của lượt) trên index, sau chữ ký và
     attestation `vuln` (action `image-sign`). Action từ chối ký trừ khi workflow của lượt là subject của nguồn phát hành của repo này (`images.yml`
     ở `refs/heads/main`, identity mà Kyverno nhận cho `web` từ đây), và chỉ ghi mỗi bundle khi digest chưa có bundle cùng loại (chạy lại một lượt
-    không ký hai lần). Đây là job duy nhất của đường build có `id-token: write` và `attestations: write` (provenance cũng vào attestations của
-    repo); không dùng cache. Artifact `release-<image>` (repository, tag, digest của index đã ký) là thứ `promote` ghi vào `envs/stg/images/`
-    của `svp-gitops`.
+    không ký hai lần). Đây là job duy nhất có `attestations: write` (provenance cũng vào attestations của repo); `id-token: write` chỉ ở job
+    này, `ecr-copy` và `rescan`; không dùng cache. Artifact `release-<image>` (repository, tag, digest của index đã ký) là đầu vào của
+    `ecr-copy`.
+  - `ecr-copy` (matrix theo image, `fail-fast: false`): `deploy/ci/ecr-copy.sh copy` của backend chép index, mọi manifest con và mọi referrer
+    (chữ ký, SBOM, `vuln`, provenance) từ GHCR sang repo cùng tên ở ECR stg, cùng digest, không build lại; chạy lại bao nhiêu lần cũng được
+    (chép nốt phần thiếu), rồi kiểm chữ ký và attestation trên bản ECR với identity của nguồn `web`. Chỉ khi kiểm đạt job mới tải lên artifact
+    `ecr-<image>` (cùng nội dung `release-<image>`), là thứ `promote` ghi vào `envs/stg/images/` của `svp-gitops`. `vuln` ở ECR quá hạn thì
+    job đỏ và in lệnh dispatch rescan cho digest đó (mục `rescan`).
   - `promote`: dựng lại nhánh `bot/promote-stg-web` thành một commit của bot trên `main` ở đó, đặt khối `image` của `envs/stg/images/web.yaml` về
     bản lượt này vừa ký (comment của file giữ nguyên), mở hay cập nhật PR và bật auto-merge; `svp-gitops` merge khi `gitops-ok` xanh, không cần
-    duyệt (không Code Owner nào giữ `envs/stg/`). Không bao giờ ghi `envs/stg/charts.yaml`: chart là của backend. Job chạy cả khi bước ký lỗi,
-    khi đó không promote gì. Các lượt của `main` nối đuôi nhau (nhóm concurrency của build không bao giờ huỷ) nên lượt sau không promote trước
+    duyệt (không Code Owner nào giữ `envs/stg/`). Không bao giờ ghi `envs/stg/charts.yaml`: chart là của backend. Job chạy cả khi bước ký hay
+    `ecr-copy` lỗi, khi đó không có artifact `ecr-web` và không promote gì; chạy lại leg lỗi rồi chạy lại `promote` thì đi tiếp. Các lượt
+    của `main` nối đuôi nhau (nhóm concurrency của build không bao giờ huỷ) nên lượt sau không promote trước
     lượt trước; bước từ chối lượt có commit cũ hơn bản `web` mà `main` của `svp-gitops` hay PR đang mở nêu (lượt chạy lại, dispatch một commit cũ),
     so bằng quan hệ tổ tiên chứ không bằng thời gian. `yq_` là yq của `YQ_IMAGE` (ghim digest trong `Makefile` của backend, không mạng): yq cài
     sẵn trên runner đổi theo image runner mà không ai thấy, trong khi bước này ghi vào repo triển khai. `promote_open_pr` tìm PR đang mở của app
     từ một nhánh, không bao giờ của fork; `gh` lỗi hay danh sách dài quá mức tin được thì lỗi. `promote_image_row` là dòng của bảng ở body PR.
     `source` file đó chỉ định nghĩa hàm, không chạy gì.
-  - `rescan` (lịch hằng ngày, hay dispatch với `rescan=true`): mỗi digest `web` của repo này mà `svp-gitops` nêu (`envs/*/images/` ở `main` và ở
-    PR đang mở `bot/promote-stg-web`) được quét lại theo từng manifest; attestation `vuln` được thay bằng kết quả thật, ký bằng identity của
-    workflow này (theo định dạng mà digest được ký; với Sigstore bundle thì các bundle `vuln` cũ bị gỡ, cần `packages: write`). CRITICAL được
-    ghi lại trước rồi mới làm job đỏ (mail cho chủ repo); bí mật làm job đỏ trước khi attest gì (`deploy/ci/rescan.sh`). Bản của backend để
-    rescan của backend lo: `--source web` làm script kiểm lượt này đúng là của nguồn phát hành của repo này và workflow ký của nó trước khi đọc gì,
-    nên không bao giờ thay attestation của bản phát hành repo khác. `svp-gitops` được clone ẩn danh và file của nó chỉ đọc như dữ liệu, không chạy;
-    `GITHUB_TOKEN` chỉ để hỏi PR promote có đang mở không (đọc repo public). Không cache vì job giữ `id-token`.
+  - `rescan` (lịch hằng ngày, hay dispatch với `rescan=true`): mỗi digest `web` của repo này mà `svp-gitops` nêu (`envs/*/images/` ở `main`, ở PR
+    đang mở `bot/promote-stg-web` và ở PR promote prd đang mở của backend) được quét lại theo từng manifest; attestation `vuln` được thay bằng
+    kết quả thật, ký bằng identity của workflow này (theo định dạng mà digest được ký; với Sigstore bundle thì các bundle `vuln` cũ bị gỡ, cần
+    `packages: write`). CRITICAL được ghi lại trước rồi mới làm job đỏ (mail cho chủ repo); bí mật làm job đỏ trước khi attest gì
+    (`deploy/ci/rescan.sh`). Bản của backend để rescan của backend lo: `--source web` làm script kiểm lượt này đúng là của nguồn phát hành của
+    repo này và workflow ký của nó trước khi đọc gì, nên không bao giờ thay attestation của bản phát hành repo khác. Sau đó bản sao của digest ở
+    ECR của mỗi env mà `svp-gitops` nêu nó (`envs/<env>/`) nhận `vuln` mới, `vuln` cũ ở đó bị gỡ (`ecr-copy.sh refresh`, role rescan của account
+    env đó; environment `ecr-rescan`). Dispatch với `rescan=true`, `image=web`, `digest=<sha256:…>` và `env` (`stg` mặc định, `prd`) làm mới một
+    bản chưa được promote (ECR stg: `ecr-copy` lỗi vì `vuln` quá hạn; ECR prd: `promote-prd` của backend dừng giữa chừng): quét lại digest đó
+    trên GHCR, làm mới bản ở ECR của `env` (với `stg`: chép thêm phần còn thiếu), rồi chạy lại job `ecr-copy` và `promote` của lượt build đó (hay
+    `promote-prd`). Rollback `web` về một digest cũ hơn hạn của `vuln` (`maxAttestationAge` của `svp-policy`): trước khi sync, dispatch với
+    `rescan=true` và `values_ref=<nhánh, SHA hay refs/pull/<n>/head của svp-gitops>`
+    (`gh workflow run images.yml --repo anhnvcoder/svp-frontend --ref main -f rescan=true -f values_ref=<ref>`); lượt quét thêm mọi digest `web`
+    mà `envs/<env>/images/` ở ref đó nêu và làm mới bản của nó ở ECR của `<env>`. `values_ref` không đi cùng `digest`, `image`, `env`, chỉ đi với
+    `rescan=true`; sai thì job `plan` lỗi. `svp-gitops` được clone ẩn danh và file của nó chỉ đọc như dữ liệu, không chạy; `GITHUB_TOKEN` chỉ để
+    hỏi PR promote có đang mở không (đọc repo public). Không cache vì job giữ `id-token`.
 - `pr-title.yml` (PR mở, sửa, mở lại, push mới): job `pr-title` kiểm tiêu đề PR, cũng là tiêu đề commit squash, theo Conventional
   Commits: `<type>[(<scope>)][!]: <mô tả>`, type là `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`, `build`, `perf`, `revert`,
   hay `Revert "<tiêu đề>"` của nút Revert; không danh sách scope, nên `chore(deps): …`, `fix(deps): …` của Renovate và
