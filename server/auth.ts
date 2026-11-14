@@ -70,7 +70,7 @@ export function failureState(email: string, failure: AuthFailure, handle = ""): 
   const state: AuthState = { email, handle, fieldErrors: {}, formError: null, retryAfterSeconds: null };
   if (failure.code === "INVALID_EMAIL") {
     state.fieldErrors.email = failure.code;
-  } else if (failure.code === "INVALID_PASSWORD") {
+  } else if (failure.code === "INVALID_PASSWORD" || failure.code === "PASSWORD_BLOCKLISTED") {
     state.fieldErrors.password = failure.code;
   } else if (failure.code === "INVALID_HANDLE" || failure.code === "HANDLE_ALREADY_TAKEN") {
     state.fieldErrors.handle = failure.code;

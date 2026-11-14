@@ -166,6 +166,23 @@ describe("AuthForm", () => {
     expect(message).not.toMatch(minOnly);
   });
 
+  it.each<Locale>(["vi", "en"])(
+    "%s: PASSWORD_BLOCKLISTED of the server shows on the password field and takes the focus",
+    async (locale) => {
+      renderForm({
+        locale,
+        mode: "register",
+        action: async () => state({ email: "minhanh@gmail.com", fieldErrors: { password: "PASSWORD_BLOCKLISTED" } }),
+      });
+      await submit(locale, "register");
+      const input = passwordInput(locale);
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      expect(description(input)).toBe(t(locale).errors.PASSWORD_BLOCKLISTED);
+      expect(handleInput(locale).getAttribute("aria-invalid")).toBeNull();
+      expect(document.activeElement).toBe(input);
+    },
+  );
+
   it("describes the register password by its hint", () => {
     renderForm({ mode: "register" });
     expect(description(passwordInput())).toBe(t("vi").passwordHint);

@@ -1,7 +1,7 @@
 import { delay, http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "@/lib/test/msw-server";
-import { SessionStore } from "./session";
+import { SessionStore, type TokenSet } from "./session";
 import { noClientAddress } from "./gateway";
 import { SessionAccess } from "./session-access";
 import { accessTokenBody, fakeTokens, gatewayOrigin, gatewayProblem, recordLogouts, testServices } from "./testing/bff";
@@ -322,6 +322,65 @@ describe.skipIf(!testRedisURL)("SessionAccess on the test Redis", () => {
     await services.access.end(sid, session, noClientAddress);
     expect(await services.store.get(sid)).toBeNull();
     expect(logouts).toEqual([session.refresh_token]);
+  });
+});
+
+describe.skipIf(!testRedisURL)("SessionAccess with the gateway's 15-minute access token on the test Redis", () => {
+  const redis = useTestRedis();
+  const minute = 60_000;
+  let start = 0;
+  let clock = 0;
+  const services = () => testServices(redis.client(), redis.prefix(), { now: () => clock });
+
+  beforeEach(() => {
+    start = Date.now();
+    clock = start;
+  });
+
+  // Answers /auth/refresh with `next` and counts the calls.
+  function refreshesTo(next: TokenSet): { calls: string[] } {
+    const calls: string[] = [];
+    server.use(
+      http.post(`${gatewayOrigin}/auth/refresh`, async ({ request }) => {
+        calls.push(((await request.json()) as { refresh_token: string }).refresh_token);
+        await delay(50);
+        return HttpResponse.json(accessTokenBody(next));
+      }),
+    );
+    return { calls };
+  }
+
+  it("uses the stored token at 14:00 without a refresh", async () => {
+    const bff = services();
+    const { sid, session } = await bff.store.create(userId, fakeTokens(userId));
+    const { calls } = refreshesTo(fakeTokens(userId));
+    clock = start + 14 * minute;
+    expect(await bff.access.access(sid, noClientAddress)).toEqual({ kind: "ok", session });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("makes one refresh with under 30 s left and hands out the new token", async () => {
+    const bff = services();
+    const { sid, session } = await bff.store.create(userId, fakeTokens(userId));
+    const next = fakeTokens(userId);
+    const { calls } = refreshesTo(next);
+    clock = Date.parse(session.access_expires_at) - 29_000;
+    const result = await bff.access.access(sid, noClientAddress);
+    expect(calls).toEqual([session.refresh_token]);
+    expect(result).toMatchObject({ kind: "ok", session: { ver: 2, access_token: next.access_token } });
+  });
+
+  it("10 requests at once with under 30 s left make exactly one refresh and all get the new token", async () => {
+    const bff = services();
+    const { sid, session } = await bff.store.create(userId, fakeTokens(userId));
+    const next = fakeTokens(userId);
+    const { calls } = refreshesTo(next);
+    clock = Date.parse(session.access_expires_at) - 29_000;
+    const results = await Promise.all(Array.from({ length: 10 }, () => bff.access.access(sid, noClientAddress)));
+    expect(calls).toEqual([session.refresh_token]);
+    for (const result of results) {
+      expect(result).toMatchObject({ kind: "ok", session: { ver: 2, access_token: next.access_token } });
+    }
   });
 });
 
