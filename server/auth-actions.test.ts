@@ -274,4 +274,28 @@ describe.skipIf(!testRedisURL)("auth actions on the test Redis", () => {
     expect(logins).toBe(0);
     expect(request.cookies.size).toBe(0);
   });
+
+  it("registerAction shows 400 PASSWORD_BLOCKLISTED on the password field and does not log in", async () => {
+    let logins = 0;
+    server.use(
+      http.post(`${gatewayOrigin}/auth/register`, () => gatewayProblem(400, "PASSWORD_BLOCKLISTED")),
+      http.post(`${gatewayOrigin}/auth/login`, () => {
+        logins++;
+        return HttpResponse.json(accessTokenBody(fakeTokens(userId)));
+      }),
+    );
+    const state = await registerAction(
+      initialAuthState,
+      form({ email: "a@example.com", password: "password123", handle: "alice" }),
+    );
+    expect(state).toEqual({
+      email: "a@example.com",
+      handle: "alice",
+      fieldErrors: { password: "PASSWORD_BLOCKLISTED" },
+      formError: null,
+      retryAfterSeconds: null,
+    });
+    expect(logins).toBe(0);
+    expect(request.cookies.size).toBe(0);
+  });
 });
