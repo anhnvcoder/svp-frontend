@@ -316,8 +316,10 @@ Từng workflow, ruleset và Renovate:
     `upload-sarif` đọc dòng của từng finding và tính fingerprint (alert qua được việc lệch dòng cùng lịch sử và việc dismiss), không chạy gì
     của repo. Là báo cáo chứ không phải check: upload lỗi vẫn làm lượt chạy đỏ.
 - `images.yml` (PR, push `main`, chạy tay, lịch hằng ngày): `plan`; PR chỉ `build-nopush` (build, quét hai chân amd64, arm64); `main`:
-  `build` (trivy chặn bí mật và CRITICAL còn lại sau `.trivyignore.yaml`, grype trên SBOM chặn Critical còn lại sau `.grype.yaml`,
-  rồi mới push), `merge` (index đa kiến trúc), `sign` (cosign keyless:
+  `build` (trivy chặn bí mật, CRITICAL và HIGH có bản vá còn lại sau `.trivyignore.yaml`, grype trên SBOM chặn Critical
+  và High có bản vá còn lại sau `.grype.yaml`,
+  [ADR-0070](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0070-scan-gate-high-fixed.md); rồi mới push),
+  `merge` (index đa kiến trúc), `sign` (cosign keyless:
   chữ ký, SBOM, attestation `vuln` ở dạng Sigstore bundle; rồi build provenance bằng `actions/attest`, quyền `attestations: write` chỉ ở
   job này), `promote` (environment `promote`, token một giờ của GitHub App `svp-web-promoter` chỉ
   trên `svp-gitops`: clone `svp-gitops`, dựng nhánh `bot/promote-stg-web` một commit của bot trên `main`, `yq_ -i` (yq theo
@@ -327,10 +329,11 @@ Từng workflow, ruleset và Renovate:
   `gitops-ok` xanh), `rescan`
   (lịch hằng ngày: quét lại và attest lại bản web của repo này đang ở `envs/*/images/`, không đụng bản của backend), `sarif`, check
   tổng `images-ok`.
-  - Luồng: image `ghcr.io/anhnvcoder/svp-frontend/web` build mỗi lượt từ cả cây trên runner amd64 và arm64 gốc; image cục bộ quét bằng trivy và
-    SBOM bằng grype, chặn bí mật và CRITICAL **trước** khi đẩy gì; chỉ đẩy đúng cái đã quét, rồi ghép index đa kiến trúc, ký keyless bằng cosign,
-    attest SBOM (syft) và kết quả quét, sau đó build provenance (`actions/attest`), tất cả là Sigstore bundle; digest đã ký được promote lên stg
-    qua PR ở `svp-gitops`, và digest đã phát hành được quét lại hằng ngày.
+  - Luồng: image `ghcr.io/anhnvcoder/svp-frontend/web` build mỗi lượt từ cả cây trên runner amd64 và arm64 gốc; image
+    cục bộ quét bằng trivy và SBOM bằng grype, chặn bí mật, CRITICAL và HIGH có bản vá **trước** khi đẩy gì; chỉ đẩy
+    đúng cái đã quét, rồi ghép index đa kiến trúc, ký keyless bằng cosign, attest SBOM (syft) và kết quả quét, sau đó
+    build provenance (`actions/attest`), tất cả là Sigstore bundle; digest đã ký được promote lên stg qua PR ở
+    `svp-gitops`, và digest đã phát hành được quét lại hằng ngày.
   - Một lần ghim cho cả bộ: action, guard của chúng (`deploy/ci/image-guard.sh` cạnh chúng) và image công cụ mà `Makefile` của backend ghim digest
     đi cùng `.backend-commit`. Input `code-root`, và `SVP_CODE_ROOT` cho script backend mà file này chạy (`deploy/ci/plan.sh`,
     `deploy/ci/rescan.sh`), báo rằng code được build và phát hành là checkout này chứ không phải của backend: chúng lấy nguồn phát hành có
