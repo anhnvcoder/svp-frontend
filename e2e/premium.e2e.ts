@@ -13,8 +13,9 @@ test(
     test.slow();
     const author = await registerAccount();
     const title = `e2e premium ${randomBytes(4).toString("hex")}`;
-    // Three 4 s segments: the preview takes the first, so a premium video needs at least two.
-    const videoId = await publishVideo(await gatewayToken(author), title, testClip(12, "360x640"), true);
+    // Three 4 s segments: the preview takes the first, so a premium video needs at least two. A short side of 720
+    // gives the ladder a 720p rendition, which the SD master below must leave out.
+    const videoId = await publishVideo(await gatewayToken(author), title, testClip(12, "720x1280"), true);
 
     const viewer = await registerAccount();
     const pagePath = `/v/${videoId}`;
