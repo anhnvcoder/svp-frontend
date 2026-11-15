@@ -1,4 +1,4 @@
-import { Heart, UserPlus, X } from "lucide-react";
+import { Heart, Lock, UserPlus, X } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
@@ -8,16 +8,17 @@ import { primaryAction, secondaryAction } from "@/components/shell/error-screen"
 
 type LoginPromptProps = {
   // What the guest tried: the title says what logging in gives.
-  reason: "like" | "follow";
+  reason: "like" | "follow" | "premium";
   // Login and register pages, each sending the user back to this page afterwards.
   loginHref: string;
   registerHref: string;
   onClose: () => void;
 };
 
-// Asks a guest to log in when they press like or follow: a bottom sheet, a centered dialog on wide screens. Modal:
-// focus moves to its first action, Tab and Shift+Tab go round its own controls without reaching the page under the
-// backdrop, and focus comes back to the button that opened it; Escape, the backdrop and "Later" close it.
+// Asks a guest to log in when they press like or follow, or want the whole of a premium video: a bottom sheet, a
+// centered dialog on wide screens. Modal: focus moves to its first action, Tab and Shift+Tab go round its own controls
+// without reaching the page under the backdrop, and focus comes back to the button that opened it; Escape, the
+// backdrop and "Later" close it.
 export function LoginPrompt({ reason, loginHref, registerHref, onClose }: LoginPromptProps) {
   const t = useTranslations("share.prompt");
   const first = useRef<HTMLAnchorElement>(null);
@@ -44,8 +45,8 @@ export function LoginPrompt({ reason, loginHref, registerHref, onClose }: LoginP
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  const title = reason === "like" ? t("likeTitle") : t("followTitle");
-  const Icon = reason === "like" ? Heart : UserPlus;
+  const title = { like: t("likeTitle"), follow: t("followTitle"), premium: t("premiumTitle") }[reason];
+  const Icon = { like: Heart, follow: UserPlus, premium: Lock }[reason];
   return (
     <>
       <div aria-hidden="true" onClick={onClose} className="fixed inset-0 z-40 bg-overlay" />
@@ -78,7 +79,9 @@ export function LoginPrompt({ reason, loginHref, registerHref, onClose }: LoginP
           <h2 id="login-prompt-title" className="text-xl font-bold">
             {title}
           </h2>
-          <p className="text-[15px] leading-normal text-pretty text-muted">{t("body")}</p>
+          <p className="text-[15px] leading-normal text-pretty text-muted">
+            {reason === "premium" ? t("premiumBody") : t("body")}
+          </p>
         </div>
         <div className="flex w-full flex-col gap-2.5">
           <Link ref={first} href={loginHref} className={cn(primaryAction, "min-h-13 text-base", focusRing)}>

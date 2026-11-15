@@ -125,10 +125,27 @@ describe("isVideoId", () => {
 });
 
 describe("loadVideoPage for a guest (no session cookie)", () => {
+  it("keeps the premium flag of a public premium video, with no tier", async () => {
+    gateway({ public: () => HttpResponse.json({ ...publicVideo, premium: true }) });
+    expect(await loadVideoPage(videoId)).toEqual({
+      kind: "video",
+      video: { ...guestItem, premium: true },
+      entitlementTier: null,
+      viewerId: null,
+      loadedAt: expect.any(Number),
+    });
+  });
+
   it("reads the public video without a token, passes X-Forwarded-For and CloudFront-Viewer-Address on, and never reaches the session store", async () => {
     const calls = gateway({});
     const page = await loadVideoPage(videoId);
-    expect(page).toEqual({ kind: "video", video: guestItem, viewerId: null, loadedAt: expect.any(Number) });
+    expect(page).toEqual({
+      kind: "video",
+      video: guestItem,
+      entitlementTier: null,
+      viewerId: null,
+      loadedAt: expect.any(Number),
+    });
     expect(calls).toEqual([
       {
         path: `/public/videos/${videoId}`,
@@ -271,6 +288,7 @@ describe.skipIf(!testRedisURL)("loadVideoPage with a session on the test Redis",
     expect(page).toEqual({
       kind: "video",
       video: { ...publicVideo, stats: ownVideo.stats },
+      entitlementTier: null,
       viewerId: userId,
       loadedAt: expect.any(Number),
     });
@@ -319,6 +337,7 @@ describe.skipIf(!testRedisURL)("loadVideoPage with a session on the test Redis",
     expect(await loadVideoPage(videoId)).toEqual({
       kind: "video",
       video: guestItem,
+      entitlementTier: null,
       viewerId: null,
       loadedAt: expect.any(Number),
     });
@@ -328,6 +347,24 @@ describe.skipIf(!testRedisURL)("loadVideoPage with a session on the test Redis",
     ]);
     expect(await request.services!.store.get(sid)).toBeNull();
     expect(logouts).toEqual([tokens.refresh_token]);
+  });
+
+  it.each([
+    ["the tier the viewer holds", { premium: true, entitlement_tier: "hd" }, true, "hd"],
+    ["no tier", { premium: true }, true, null],
+    ["a tier that is not one of the tiers", { premium: true, entitlement_tier: "4k" }, true, null],
+    ["a tier on a video that is not premium", { entitlement_tier: "fhd" }, false, null],
+    ["a premium flag that is not true", { premium: "yes", entitlement_tier: "sd" }, false, null],
+  ])("of a premium video, keeps %s", async (_, fields, premium, tier) => {
+    await logIn();
+    gateway({ private: () => HttpResponse.json({ ...ownVideo, ...fields }) });
+    const page = await loadVideoPage(videoId);
+    expect(page).toMatchObject({ kind: "video", entitlementTier: tier });
+    const video = page.kind === "video" ? page.video : null;
+    expect(video?.premium).toBe(premium ? true : undefined);
+    expect(video && "entitlement_tier" in video).toBe(false);
+    // The page plays the public preview of playlist_url until the viewer holds a tier.
+    expect(video?.playlist_url).toBe(publicVideo.playlist_url);
   });
 
   it("refreshes an expired access token first, as every page does", async () => {

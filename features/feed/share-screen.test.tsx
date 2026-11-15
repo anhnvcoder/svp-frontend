@@ -10,7 +10,8 @@ import { linkPendingMessages } from "@/components/shell/link-pending-messages";
 import { messagesFor } from "@/i18n/messages";
 import { formatCompact } from "@/lib/format";
 import { server } from "@/lib/test/msw-server";
-import type { FeedItem } from "./api";
+import type { FeedItem, Tier } from "./api";
+import type { PurchaseState } from "./purchase";
 import { ShareScreen } from "./share-screen";
 
 vi.mock("next/navigation", () => ({ useRouter: vi.fn() }));
@@ -43,16 +44,20 @@ const baseVideo: FeedItem = {
   stats: { view_count: 1_200_000, like_count: 12_400, liked_by_me: false },
 };
 
-const router = { replace: vi.fn(), push: vi.fn() };
+const router = { replace: vi.fn(), push: vi.fn(), refresh: vi.fn() };
 
 function renderShare({
   video = baseVideo,
   viewerId = null,
+  entitlementTier = null,
+  purchaseAction = vi.fn(),
   locale = "vi",
   client = new QueryClient(),
 }: {
   video?: FeedItem;
   viewerId?: string | null;
+  entitlementTier?: Tier | null;
+  purchaseAction?: (previous: PurchaseState, form: FormData) => Promise<PurchaseState>;
   locale?: Locale;
   // The tab's client, shared by the renders of one test as it is by the pages of a tab.
   client?: QueryClient;
@@ -65,7 +70,15 @@ function renderShare({
       messages={{ feed: messages.feed, share: messages.share, ...linkPendingMessages(messages) }}
     >
       <QueryClientProvider client={client}>
-        <ShareScreen video={video} viewerId={viewerId} mediaOrigin={mediaOrigin} loadedAt={loadedAt} appName="SVP" />
+        <ShareScreen
+          video={video}
+          viewerId={viewerId}
+          entitlementTier={entitlementTier}
+          purchaseAction={purchaseAction}
+          mediaOrigin={mediaOrigin}
+          loadedAt={loadedAt}
+          appName="SVP"
+        />
       </QueryClientProvider>
     </NextIntlClientProvider>,
   );
@@ -125,6 +138,7 @@ beforeEach(() => {
 
 afterEach(() => {
   router.replace.mockReset();
+  router.refresh.mockReset();
 });
 
 afterAll(() => {
@@ -418,5 +432,107 @@ describe("ShareScreen for a logged-in user", () => {
     fireEvent.click(likeButton());
     await waitFor(() => expect(screen.getByText(feed().toast.rateLimited)).toBeTruthy());
     expect(likeButton().hasAttribute("disabled")).toBe(true);
+  });
+});
+
+describe("ShareScreen of a premium video", () => {
+  const premiumVideo: FeedItem = { ...baseVideo, premium: true };
+  const fullPlaylist = `/api/videos/${videoId}/playback/master.m3u8`;
+  const p = (locale: Locale = "vi") => share(locale).premium;
+  // The side panel of wide screens; jsdom applies no CSS, so the bar of small screens is in the tree too.
+  const aside = () => screen.getByRole("complementary");
+  const buy = (tier: string) => within(aside()).getByRole("button", { name: p().buy.replace("{tier}", tier) });
+
+  it.each<Locale>(["vi", "en"])(
+    "%s: a guest plays the preview, sees the label and is asked to log in",
+    async (locale) => {
+      renderShare({ video: premiumVideo, locale });
+      expect((await playingVideo()).getAttribute("src")).toBe(premiumVideo.playlist_url);
+      const label = `${feed(locale).premium.label} · ${feed(locale).premium.preview}`;
+      expect(within(stage()).getByText(label)).toBeTruthy();
+      expect(within(aside()).getByText(label)).toBeTruthy();
+      expect(within(aside()).getByText(p(locale).guestBody)).toBeTruthy();
+      expect(screen.queryByText(share(locale).guestHintNoName)).toBeNull();
+      expect(screen.queryByText(share(locale).guestHint.replace("{name}", "Minh Anh"))).toBeNull();
+
+      fireEvent.click(within(aside()).getByRole("button", { name: p(locale).logIn }));
+      const dialog = screen.getByRole("dialog", { name: share(locale).prompt.premiumTitle });
+      expect(within(dialog).getByText(share(locale).prompt.premiumBody)).toBeTruthy();
+      expect(
+        within(dialog)
+          .getByRole("link", { name: share(locale).prompt.logIn })
+          .getAttribute("href"),
+      ).toBe(`/login?next=${next}`);
+    },
+  );
+
+  it("a logged-in viewer without a tier plays the preview and buys one through the action", async () => {
+    const purchaseAction = vi.fn<(previous: PurchaseState, form: FormData) => Promise<PurchaseState>>(async () => ({
+      error: null,
+      retryAfterSeconds: null,
+    }));
+    renderShare({ video: premiumVideo, viewerId: viewer, purchaseAction });
+    expect((await playingVideo()).getAttribute("src")).toBe(premiumVideo.playlist_url);
+    expect(within(aside()).getByText(p().previewBody)).toBeTruthy();
+    expect(within(aside()).getByText(p().simulated)).toBeTruthy();
+
+    await act(async () => fireEvent.click(buy("SD")));
+    await waitFor(() => expect(purchaseAction).toHaveBeenCalledTimes(1));
+    const form = purchaseAction.mock.calls[0]![1];
+    expect(form.get("video_id")).toBe(videoId);
+    expect(form.get("tier")).toBe("sd");
+  });
+
+  it.each([
+    ["FAILED", () => share().premium.failed],
+    ["RATE_LIMITED", () => share().premium.rateLimited],
+  ] as const)("says why a purchase did not go through (%s)", async (error, message) => {
+    const purchaseAction = vi.fn(async () => ({ error, retryAfterSeconds: error === "RATE_LIMITED" ? 5 : null }));
+    renderShare({ video: premiumVideo, viewerId: viewer, purchaseAction });
+    await act(async () => fireEvent.click(buy("HD")));
+    expect((await within(aside()).findByRole("alert")).textContent).toBe(message());
+    expect(buy("SD").hasAttribute("disabled")).toBe(error === "RATE_LIMITED");
+  });
+
+  it("a viewer holding a tier plays the whole video through this server and can change the tier", async () => {
+    renderShare({ video: premiumVideo, viewerId: viewer, entitlementTier: "sd" });
+    expect((await playingVideo()).getAttribute("src")).toBe(fullPlaylist);
+    expect(within(stage()).getByText(`${feed().premium.label} · SD`)).toBeTruthy();
+    expect(within(aside()).getByText(p().heldBody.replace("{tier}", "SD"))).toBeTruthy();
+    const held = within(aside()).getByRole("button", { name: p().held.replace("{tier}", "SD") });
+    expect(held.hasAttribute("disabled")).toBe(true);
+    expect(buy("Full HD").hasAttribute("disabled")).toBe(false);
+  });
+
+  it("the author plays the whole video and buys nothing", async () => {
+    renderShare({ video: premiumVideo, viewerId: creator, entitlementTier: "fhd" });
+    expect((await playingVideo()).getAttribute("src")).toBe(fullPlaylist);
+    expect(within(aside()).getByText(p().authorBody)).toBeTruthy();
+    expect(within(aside()).queryByRole("group", { name: p().tiersLabel })).toBeNull();
+  });
+
+  it("asks the server again once when the whole video fails, after one reload of the playlist", async () => {
+    renderShare({ video: premiumVideo, viewerId: viewer, entitlementTier: "sd" });
+    const video = await playingVideo();
+    // The first failure loads the playlist once more: signatures that expired are signed again.
+    fireEvent(video, new Event("error"));
+    await waitFor(() => expect(video.getAttribute("src")).toBe(fullPlaylist));
+    expect(router.refresh).not.toHaveBeenCalled();
+    fireEvent(video, new Event("error"));
+    await waitFor(() => expect(screen.getByText(feed().playError.title)).toBeTruthy());
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not ask the server again when the preview fails", async () => {
+    renderShare({ video: premiumVideo, viewerId: viewer });
+    fireEvent(await playingVideo(), new Event("error"));
+    await waitFor(() => expect(screen.getByText(feed().playError.title)).toBeTruthy());
+    expect(router.refresh).not.toHaveBeenCalled();
+  });
+
+  it("an ordinary video has no label and no premium panel", () => {
+    renderShare({ viewerId: viewer });
+    expect(screen.queryByText(`${feed().premium.label} · ${feed().premium.preview}`)).toBeNull();
+    expect(screen.queryByRole("heading", { name: p().title })).toBeNull();
   });
 });

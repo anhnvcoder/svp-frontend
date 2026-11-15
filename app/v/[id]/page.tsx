@@ -5,6 +5,7 @@ import { getMessages, getTranslations } from "next-intl/server";
 import { linkPendingMessages } from "@/components/shell/link-pending-messages";
 import { ShareScreen } from "@/features/feed/share-screen";
 import { rateLimitedError } from "@/server/current-user";
+import { purchaseTierAction } from "@/server/entitlement-actions";
 import { serverEnv } from "@/server/env";
 import { isVideoId, loadVideoPage, videoMetadata } from "@/server/video-page";
 
@@ -46,6 +47,8 @@ export default async function VideoPage({ params }: Props) {
       <ShareScreen
         video={page.video}
         viewerId={page.viewerId}
+        entitlementTier={page.entitlementTier}
+        purchaseAction={purchaseTierAction}
         mediaOrigin={serverEnv().mediaOrigin}
         loadedAt={page.loadedAt}
         appName={common("appName")}

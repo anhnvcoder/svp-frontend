@@ -67,5 +67,14 @@
     "rateLimited": "You're going a bit fast. Try again in a few seconds.",
     "retry": "Try again",
     "dismiss": "Dismiss"
+  },
+  "premium": {
+    "label": "Premium",
+    "preview": "Preview",
+    "tier": {
+      "sd": "SD",
+      "hd": "HD",
+      "fhd": "Full HD"
+    }
   }
 }

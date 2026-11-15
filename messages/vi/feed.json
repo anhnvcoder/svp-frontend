@@ -67,5 +67,14 @@
     "rateLimited": "Bạn thao tác hơi nhanh. Thử lại sau ít giây.",
     "retry": "Thử lại",
     "dismiss": "Đóng"
+  },
+  "premium": {
+    "label": "Premium",
+    "preview": "Xem thử",
+    "tier": {
+      "sd": "SD",
+      "hd": "HD",
+      "fhd": "Full HD"
+    }
   }
 }

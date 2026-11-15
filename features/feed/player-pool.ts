@@ -1,6 +1,6 @@
 import { handleClientError } from "@/features/monitoring/reporter";
 import { loadHls, type HlsClass, type HlsConfig, type HlsInstance } from "./hls-loader";
-import { isMediaUrl } from "./media-url";
+import { isMediaUrl, isPremiumPlaylistPath } from "./media-url";
 
 // A fixed pool of three <video> elements, each with at most one hls.js instance, for the previous, current and next
 // item of the feed. Moving through the feed changes a slot's source and moves its element into the item's host; it
@@ -59,8 +59,9 @@ const hlsConfig: Partial<HlsConfig> = {
   maxBufferSize: 2 * 1000 * 1000,
   maxMaxBufferLength: 20,
   backBufferLength: 10,
-  // The playlist and segments are public objects of the media origin: hls.js's XHR loader sends them without
-  // credentials (withCredentials stays false) and no xhrSetup adds a header or a cookie.
+  // Segments are objects of the media origin: hls.js's XHR loader sends them without credentials (withCredentials
+  // stays false) and no xhrSetup adds a header or a cookie. A premium playlist is on this origin, so the browser sends
+  // the session cookie with it as with any same-origin request.
 };
 
 interface Slot {
@@ -73,6 +74,8 @@ interface Slot {
   generation: number;
   // The source can play (canplay or playing) or failed: when this slot holds the current item, its neighbours may load.
   started: boolean;
+  // A premium source was loaded again after its signed segments were refused, and has not played since.
+  reloaded: boolean;
 }
 
 export class PlayerPool {
@@ -178,7 +181,16 @@ export class PlayerPool {
     video.loop = true;
     video.preload = "metadata";
     video.className = "absolute inset-0 size-full object-cover";
-    const slot: Slot = { video, hls: null, index: null, source: null, host: null, generation: 0, started: false };
+    const slot: Slot = {
+      video,
+      hls: null,
+      index: null,
+      source: null,
+      host: null,
+      generation: 0,
+      started: false,
+      reloaded: false,
+    };
     const report = (state: PlaybackState) => () => {
       if (slot.index !== null) {
         this.callbacks.onState(slot.index, state);
@@ -194,6 +206,7 @@ export class PlayerPool {
       }
     });
     video.addEventListener("playing", () => {
+      slot.reloaded = false;
       video.dataset.state = "playing";
       report("playing")();
       this.markStarted(slot);
@@ -207,8 +220,12 @@ export class PlayerPool {
       report("buffering")();
     });
     video.addEventListener("error", () => {
-      // Only the native HLS path reports through the element; hls.js reports through its ERROR event.
+      // Only the native HLS path reports through the element; hls.js reports through its ERROR event. The element
+      // does not say why it failed, so any error of a premium source counts as signatures that expired.
       if (slot.hls === null && slot.source !== null) {
+        if (this.reloadPremium(slot)) {
+          return;
+        }
         video.dataset.state = "error";
         report("error")();
       }
@@ -228,7 +245,8 @@ export class PlayerPool {
     return slot;
   }
 
-  private async attach(slot: Slot, source: PoolSource, host: HTMLElement): Promise<void> {
+  // `startAt` is the position, in seconds, a source loaded again resumes from.
+  private async attach(slot: Slot, source: PoolSource, host: HTMLElement, startAt = 0): Promise<void> {
     const generation = ++slot.generation;
     const { video } = slot;
     slot.index = source.index;
@@ -242,7 +260,7 @@ export class PlayerPool {
     host.append(video);
     this.callbacks.onState(source.index, "loading");
 
-    if (!isMediaUrl(source.playlistUrl, this.mediaOrigin)) {
+    if (!isMediaUrl(source.playlistUrl, this.mediaOrigin) && !isPremiumPlaylistPath(source.playlistUrl)) {
       this.fail(slot);
       return;
     }
@@ -263,15 +281,30 @@ export class PlayerPool {
     }
     // MediaSource, or ManagedMediaSource on iOS 17.1+: hls.js. Only without either does the browser play HLS itself.
     if (!Hls.isSupported()) {
+      if (startAt > 0) {
+        video.addEventListener(
+          "loadedmetadata",
+          () => {
+            if (slot.generation === generation) {
+              video.currentTime = startAt;
+            }
+          },
+          { once: true },
+        );
+      }
       video.src = source.playlistUrl;
       this.applyPlayback(slot);
       return;
     }
-    const hls = new Hls(hlsConfig);
+    const hls = new Hls(startAt > 0 ? { ...hlsConfig, startPosition: startAt } : hlsConfig);
     slot.hls = hls;
     hls.on(Hls.Events.ERROR, (_event, data) => {
       // hls.js retries what it can by itself; a fatal error ends this instance, so a broken segment never loops.
-      if (data.fatal && slot.hls === hls) {
+      if (!data.fatal || slot.hls !== hls) {
+        return;
+      }
+      const refused = data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR && data.response?.code === 403;
+      if (!refused || !this.reloadPremium(slot)) {
         this.fail(slot);
       }
     });
@@ -282,6 +315,21 @@ export class PlayerPool {
     });
     hls.loadSource(source.playlistUrl);
     hls.attachMedia(video);
+  }
+
+  // The signed segment URLs of a premium playlist expire (a long pause): the playlist is loaded once more, which signs
+  // them again, and playback resumes where it was. True when it reloads; a second refusal before playing is an error.
+  private reloadPremium(slot: Slot): boolean {
+    const { source, host, video } = slot;
+    if (slot.reloaded || !source || !host || !isPremiumPlaylistPath(source.playlistUrl)) {
+      return false;
+    }
+    slot.reloaded = true;
+    const position = video.currentTime;
+    slot.hls?.destroy();
+    slot.hls = null;
+    void this.attach(slot, source, host, position);
+    return true;
   }
 
   private fail(slot: Slot): void {
@@ -355,6 +403,7 @@ export class PlayerPool {
     delete video.dataset.state;
     video.remove();
     slot.started = false;
+    slot.reloaded = false;
     slot.index = null;
     slot.source = null;
     slot.host = null;

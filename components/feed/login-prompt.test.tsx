@@ -92,3 +92,17 @@ describe("LoginPrompt focus", () => {
     expect(document.activeElement).toBe(opener);
   });
 });
+
+describe("LoginPrompt for a premium video", () => {
+  it.each(["vi", "en"] as const)("%s: says logging in opens the whole video", (locale) => {
+    const messages = messagesFor(locale).share;
+    render(
+      <NextIntlClientProvider locale={locale} messages={{ share: messages }}>
+        <LoginPrompt reason="premium" loginHref="/login" registerHref="/register" onClose={() => {}} />
+      </NextIntlClientProvider>,
+    );
+    const dialog = screen.getByRole("dialog", { name: messages.prompt.premiumTitle });
+    expect(within(dialog).getByText(messages.prompt.premiumBody)).toBeTruthy();
+    expect(within(dialog).queryByText(messages.prompt.body)).toBeNull();
+  });
+});

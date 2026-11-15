@@ -10,6 +10,23 @@ export type FeedPage = components["schemas"]["FeedPage"];
 export type FeedItem = components["schemas"]["FeedItem"];
 export type VideoStats = components["schemas"]["VideoStats"];
 export type Profile = components["schemas"]["Profile"];
+export type Tier = components["schemas"]["Tier"];
+
+/** The tiers of a premium video, lowest first. */
+export const tiers: readonly Tier[] = ["sd", "hd", "fhd"];
+
+/** Whether `value` is one of the {@link tiers}. */
+export function isTier(value: unknown): value is Tier {
+  return tiers.includes(value as Tier);
+}
+
+/**
+ * The full master playlist of a premium video, through this server's /api proxy: same origin, so the session cookie
+ * goes along and the proxy calls the gateway with the session's token.
+ */
+export function premiumPlaylistPath(videoId: string): string {
+  return `/api/videos/${videoId}/playback/master.m3u8`;
+}
 
 // A refused or failed call. `retryAfterSeconds` is set on 429.
 export class ApiError extends Error {
@@ -69,6 +86,9 @@ function cleanAuthor(author: Profile | undefined, authorId: string): Profile | u
 function cleanItem(item: FeedItem): FeedItem {
   const { video_id, author_id, title, duration_ms, playlist_url, thumbnail_url, published_at, stats } = item;
   const cleaned: FeedItem = { video_id, author_id, title, duration_ms, playlist_url, thumbnail_url, published_at };
+  if (item.premium === true) {
+    cleaned.premium = true;
+  }
   const author = cleanAuthor(item.author, author_id);
   if (author) {
     cleaned.author = author;

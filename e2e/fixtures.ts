@@ -86,15 +86,21 @@ async function gatewayJSON<T>(token: string, method: string, path: string, body?
 export type UploadForm = { video_id: string; upload_url: string; form_fields: Record<string, string> };
 
 // POST /videos: a new video in UPLOADING with its presigned form. A video nobody uploads stays UPLOADING (until the
-// upload cleanup turns it FAILED) and takes one of the user's 3 open uploads.
-export function createVideo(token: string, title: string, sizeBytes: number): Promise<UploadForm> {
-  return gatewayJSON(token, "POST", "/videos", { title, size_bytes: sizeBytes, content_type: "video/mp4" });
+// upload cleanup turns it FAILED) and takes one of the user's 3 open uploads. A premium video is public only as a
+// short preview.
+export function createVideo(token: string, title: string, sizeBytes: number, premium = false): Promise<UploadForm> {
+  return gatewayJSON(token, "POST", "/videos", {
+    title,
+    size_bytes: sizeBytes,
+    content_type: "video/mp4",
+    ...(premium ? { premium } : {}),
+  });
 }
 
 // Creates, uploads and completes a video of the file at `path` like upload_ready of e2e/seed.sh, then waits for READY.
-export async function publishVideo(token: string, title: string, path: string): Promise<string> {
+export async function publishVideo(token: string, title: string, path: string, premium = false): Promise<string> {
   const file = readFileSync(path);
-  const form = await createVideo(token, title, file.length);
+  const form = await createVideo(token, title, file.length, premium);
   const body = new FormData();
   for (const [name, value] of Object.entries(form.form_fields)) {
     body.append(name, value);
