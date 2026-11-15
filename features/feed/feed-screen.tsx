@@ -544,6 +544,8 @@ function FeedEntry({ item, mediaOrigin, nearby, onLikeError, ...props }: FeedEnt
       likeCount={like.count}
       viewCount={item.stats?.view_count ?? null}
       onLike={like.toggle}
+      // The feed plays the public preview of a premium video; the full one plays on its page /v/{id}.
+      premium={item.premium ? null : undefined}
     />
   );
 }

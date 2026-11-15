@@ -125,6 +125,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/entitlements/{video_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Buy a premium video at a tier (simulated, nothing is charged)
+         * @description Records that the caller holds `tier` on the premium video. Idempotent: calling it again
+         *     replaces the tier, up or down. Each tier includes the renditions of the lower ones (see
+         *     `Tier`). The author of a video already holds every tier and cannot buy one.
+         */
+        put: operations["grantEntitlement"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me": {
         parameters: {
             query?: never;
@@ -257,13 +279,13 @@ export interface paths {
          *     short-lived credential: do not log or share them.
          *
          *     Without an `Idempotency-Key` each call creates a video. With one, a retry is safe: when the
-         *     caller already has a video created with this key and the same `title`, `size_bytes` and
-         *     `content_type` (compared as stored: the title trimmed, the media type in lower case without
-         *     parameters) that is still UPLOADING, the answer is a 201 with that video's `video_id` and a
+         *     caller already has a video created with this key and the same `title`, `size_bytes`,
+         *     `content_type` and `premium` (compared as stored: the title trimmed, the media type in lower
+         *     case without parameters) that is still UPLOADING, the answer is a 201 with that video's `video_id` and a
          *     newly signed form that expires with the first one, 15 minutes after the video was created,
          *     and nothing is created. A retry does not count against the 3 open uploads. Concurrent
          *     requests with one key create one video and all answer with it. The key reused with another
-         *     `title`, `size_bytes` or `content_type` is a 422 (`IDEMPOTENCY_KEY_MISMATCH`); the key of a
+         *     `title`, `size_bytes`, `content_type` or `premium` is a 422 (`IDEMPOTENCY_KEY_MISMATCH`); the key of a
          *     video that has left UPLOADING, or whose first form has expired or has less than a minute
          *     left, is a 409 (`VIDEO_NOT_UPLOADING`): start a new upload with a new key.
          */
@@ -285,9 +307,57 @@ export interface paths {
          * Get one video
          * @description A video that is not READY is visible only to its author; to anyone else it is a 404. The
          *     answer carries `author` and `stats` (with `liked_by_me`) when their services answer within
-         *     100 ms; anonymous readers use `GET /public/videos/{video_id}`.
+         *     100 ms, and `entitlement_tier` when the caller holds a tier of a premium video; anonymous
+         *     readers use `GET /public/videos/{video_id}`.
          */
         get: operations["getVideo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/videos/{video_id}/playback/master.m3u8": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The master playlist of a premium video, for the caller's tier
+         * @description The video's HLS master playlist with only the variants of the caller's tier. Each variant's
+         *     URI is relative, `<rendition>.m3u8`, so a player asks
+         *     `GET /videos/{video_id}/playback/{rendition}.m3u8` next. Needs an entitlement, or the
+         *     caller is the video's author. Belongs to the caller: no cache may keep it.
+         */
+        get: operations["getPlaybackMaster"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/videos/{video_id}/playback/{rendition}.m3u8": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The media playlist of one rendition of a premium video, with signed segment URLs
+         * @description The rendition's HLS media playlist, each segment URI an absolute URL signed for this
+         *     rendition of this video only. The signatures expire a little after the video's length
+         *     has played (between 5 and 20 minutes more); a player that gets a 403 on a segment asks for
+         *     this playlist again. The rendition must be in the caller's tier. Belongs to the caller: no
+         *     cache may keep it.
+         */
+        get: operations["getPlaybackRendition"];
         put?: never;
         post?: never;
         delete?: never;
@@ -536,7 +606,7 @@ export interface components {
             display_name: components["schemas"]["DisplayName"];
         };
         AccessToken: {
-            /** @description JWT signed with Ed25519 (EdDSA), valid for 1 hour. */
+            /** @description JWT signed with Ed25519 (EdDSA), valid for 15 minutes. */
             access_token: string;
             /** @constant */
             token_type: "Bearer";
@@ -581,7 +651,8 @@ export interface components {
             published_at?: string;
             /**
              * Format: uri
-             * @description Absolute URL of the HLS master playlist; present once READY.
+             * @description Absolute URL of the HLS master playlist; present once READY. For a premium video, the
+             *     public preview's.
              */
             playlist_url?: string;
             /**
@@ -589,6 +660,12 @@ export interface components {
              * @description Absolute URL of the thumbnail; present once READY.
              */
             thumbnail_url?: string;
+            premium?: components["schemas"]["Premium"];
+            /**
+             * @description The tier the caller holds on this premium video (`fhd` for its author); only in
+             *     `GET /videos/{video_id}`, and absent when the caller holds none.
+             */
+            entitlement_tier?: components["schemas"]["Tier"];
             /**
              * @description The author's profile, in `GET /videos/{video_id}` and the video lists; absent from
              *     `POST /videos/{video_id}/complete`, and whenever user-service does not answer within
@@ -601,6 +678,31 @@ export interface components {
              *     `POST /videos/{video_id}/complete`.
              */
             stats?: components["schemas"]["VideoStats"];
+        };
+        /**
+         * @description Present, and true, only for a premium video: `playlist_url` plays its public preview, and
+         *     the full video plays from `/videos/{video_id}/playback/master.m3u8` with an entitlement.
+         * @constant
+         */
+        Premium: true;
+        /**
+         * @description A quality level of a premium video; each includes the lower ones: `sd` plays the
+         *     renditions `source` and `360p`, `hd` adds `720p`, `fhd` plays every rendition.
+         * @enum {string}
+         */
+        Tier: "sd" | "hd" | "fhd";
+        EntitlementRequest: {
+            tier: components["schemas"]["Tier"];
+        };
+        /** @description What the caller holds on one premium video. */
+        Entitlement: {
+            video_id: components["schemas"]["Id"];
+            tier: components["schemas"]["Tier"];
+            /**
+             * Format: date-time
+             * @description When the entitlement was last granted or changed.
+             */
+            granted_at: string;
         };
         /**
          * @description One page of a user's videos, newest first by (`created_at`, `video_id`): videos created or
@@ -621,7 +723,7 @@ export interface components {
             duration_ms: number;
             /**
              * Format: uri
-             * @description Absolute URL of the HLS master playlist.
+             * @description Absolute URL of the HLS master playlist; for a premium video, the public preview's.
              */
             playlist_url: string;
             /**
@@ -634,6 +736,7 @@ export interface components {
              * @description When the video became READY.
              */
             published_at: string;
+            premium?: components["schemas"]["Premium"];
             /** @description Absent when user-service does not answer within 100 ms. */
             author?: components["schemas"]["Profile"];
             stats?: components["schemas"]["PublicVideoStats"];
@@ -670,7 +773,7 @@ export interface components {
             duration_ms: number;
             /**
              * Format: uri
-             * @description Absolute URL of the HLS master playlist.
+             * @description Absolute URL of the HLS master playlist; for a premium video, the public preview's.
              */
             playlist_url: string;
             /**
@@ -683,6 +786,7 @@ export interface components {
              * @description When the video became READY.
              */
             published_at: string;
+            premium?: components["schemas"]["Premium"];
             /**
              * @description The author's profile; absent from every item of a page when user-service does not
              *     answer within 100 ms, and from an item whose author has no profile.
@@ -731,6 +835,37 @@ export interface components {
         };
     };
     responses: {
+        /**
+         * @description The playlist (RFC 8216), rewritten for the caller. Never stored by a cache: it carries
+         *     signed URLs that belong to the caller.
+         */
+        Playlist: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/vnd.apple.mpegurl": string;
+            };
+        };
+        /** @description The path is not valid UTF-8 (`INVALID_UTF8`), or `video_id` is malformed (its reason). */
+        PlaybackBadRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description The video is not premium (`VIDEO_NOT_PREMIUM`); play its `playlist_url`. */
+        VideoNotPremium: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description OK. */
         StatusOK: {
             headers: {
@@ -839,6 +974,8 @@ export interface components {
         };
     };
     parameters: {
+        /** @description The premium video. video-service validates it. */
+        PlaybackVideoId: components["schemas"]["Id"];
         /**
          * @description Optional idempotency key of one video creation (draft-ietf-httpapi-idempotency-key-header):
          *     a Structured Field String holding a UUID in canonical lowercase form, quotes included.
@@ -863,6 +1000,10 @@ export interface components {
         RetryAfter: number;
         /** @description No cache may store the answer. */
         NoStore: "no-store";
+        /** @description Tells a browser not to read the body as a type other than the one declared. */
+        ContentTypeOptions: "nosniff";
+        /** @description Lets the body load nothing and be framed by no page. */
+        ContentSecurityPolicy: "default-src 'none'; frame-ancestors 'none'";
     };
     pathItems: never;
 }
@@ -895,7 +1036,10 @@ export interface operations {
             /**
              * @description A body that is not one JSON object with known, non-null fields (`INVALID_JSON`), or an
              *     invalid `email` (`INVALID_EMAIL`), `password` (`INVALID_PASSWORD`), `handle`
-             *     (`INVALID_HANDLE`) or `display_name` (`INVALID_DISPLAY_NAME`), checked in that order.
+             *     (`INVALID_HANDLE`) or `display_name` (`INVALID_DISPLAY_NAME`), checked in that order;
+             *     between the password and the handle, a password that is on the list of common or
+             *     leaked passwords, or equal (ignoring case) to the email, the part of the email before
+             *     the @, or the handle (`PASSWORD_BLOCKLISTED`).
              */
             400: {
                 headers: {
@@ -940,6 +1084,9 @@ export interface operations {
             /** @description Logged in. */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "X-Content-Type-Options": components["headers"]["ContentTypeOptions"];
+                    "Content-Security-Policy": components["headers"]["ContentSecurityPolicy"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -979,6 +1126,9 @@ export interface operations {
             /** @description New tokens; the presented refresh token no longer works. */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "X-Content-Type-Options": components["headers"]["ContentTypeOptions"];
+                    "Content-Security-Policy": components["headers"]["ContentSecurityPolicy"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1087,6 +1237,74 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["ServiceUnavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    grantEntitlement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The premium video. video-service validates it. */
+                video_id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntitlementRequest"];
+            };
+        };
+        responses: {
+            /** @description The caller's entitlement. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Entitlement"];
+                };
+            };
+            /**
+             * @description A body that is not one JSON object with known, non-null fields (`INVALID_JSON`), a
+             *     missing or unknown `tier` (`INVALID_TIER`), a path that is not valid UTF-8
+             *     (`INVALID_UTF8`), or a malformed `video_id` (its reason).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description No such video, or it is not READY (`VIDEO_NOT_FOUND`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description The video is not premium (`VIDEO_NOT_PREMIUM`), or the caller is its author, who
+             *     already holds every tier (`ALREADY_ENTITLED`).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            413: components["responses"]["PayloadTooLarge"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["ServiceUnavailable"];
@@ -1418,6 +1636,12 @@ export interface operations {
                      * @example video/mp4
                      */
                     content_type: string;
+                    /**
+                     * @description Makes the video premium: public only as a short preview, played in full with an
+                     *     entitlement. Fixed here, it can never be changed.
+                     * @default false
+                     */
+                    premium?: boolean;
                 };
             };
         };
@@ -1479,8 +1703,8 @@ export interface operations {
             };
             413: components["responses"]["PayloadTooLarge"];
             /**
-             * @description The `Idempotency-Key` was already used by the caller with another `title`, `size_bytes`
-             *     or `content_type` (`IDEMPOTENCY_KEY_MISMATCH`).
+             * @description The `Idempotency-Key` was already used by the caller with another `title`, `size_bytes`,
+             *     `content_type` or `premium` (`IDEMPOTENCY_KEY_MISMATCH`).
              */
             422: {
                 headers: {
@@ -1540,6 +1764,98 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["ServiceUnavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getPlaybackMaster: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The premium video. video-service validates it. */
+                video_id: components["parameters"]["PlaybackVideoId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["Playlist"];
+            400: components["responses"]["PlaybackBadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description The caller has no entitlement to the video (`NOT_ENTITLED`). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such video, or it is not READY (`VIDEO_NOT_FOUND`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            409: components["responses"]["VideoNotPremium"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["ServiceUnavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getPlaybackRendition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The premium video. video-service validates it. */
+                video_id: components["parameters"]["PlaybackVideoId"];
+                /**
+                 * @description A rendition named by the master playlist, for example `720p`: 1 to 16 lowercase letters
+                 *     and digits, other than `master`. A file of any other form is a 404
+                 *     (`RENDITION_NOT_FOUND`) without asking video-service.
+                 */
+                rendition: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["Playlist"];
+            400: components["responses"]["PlaybackBadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /**
+             * @description The caller has no entitlement to the video (`NOT_ENTITLED`), or the rendition is above
+             *     the caller's tier (`RENDITION_NOT_ENTITLED`).
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description No such video, or it is not READY (`VIDEO_NOT_FOUND`); the video has no such rendition,
+             *     or the file is not of the form `<rendition>.m3u8` (`RENDITION_NOT_FOUND`).
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            409: components["responses"]["VideoNotPremium"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["ServiceUnavailable"];

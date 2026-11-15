@@ -10,3 +10,15 @@ export function isMediaUrl(value: string, mediaOrigin: string): boolean {
   }
   return (url.protocol === "http:" || url.protocol === "https:") && url.origin === mediaOrigin;
 }
+
+const premiumPlaylist =
+  /^\/api\/videos\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/playback\/master\.m3u8$/;
+
+/**
+ * Whether `value` is the full master playlist of a premium video on this origin (`premiumPlaylistPath` of api.ts): a
+ * path, so it can only resolve to this server. Its segments are absolute URLs, still loaded only from the media origin
+ * the CSP allows.
+ */
+export function isPremiumPlaylistPath(value: string): boolean {
+  return premiumPlaylist.test(value);
+}

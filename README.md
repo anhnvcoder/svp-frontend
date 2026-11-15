@@ -1,7 +1,8 @@
 # svp-frontend
 
 Web client của nền tảng video ngắn mini svp: Next.js App Router, BFF chạy trong cùng server Next (session ở Redis, gọi gateway
-của backend), feed dọc phát HLS, hồ sơ, tải video lên bằng presigned POST.
+của backend), feed dọc phát HLS, hồ sơ, tải video lên bằng presigned POST, video premium (xem thử công khai, mua giả lập một
+gói, phát trọn video qua BFF với segment đã ký).
 
 ## Mục lục
 
@@ -24,6 +25,11 @@ nói chuyện với nhau qua **hợp đồng API có version và chữ ký**, kh
 [ADR-0033](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0033-svp-web-repo.md); thiết kế web client và danh
 sách gói được dùng: [ADR-0016](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0016-web-client.md). Bản chép
 thiết kế giao diện nằm ở [`design/`](design/README.md). Vì sao code TypeScript viết như hiện tại: [`docs/architecture.md`](docs/architecture.md).
+
+Video premium phát bản xem thử ở `playlist_url` như mọi video; người có vé phát playlist đầy đủ qua `/api` của web (cùng origin,
+cookie phiên), segment là URL đã ký trên media origin. Phía web: [`docs/architecture.md`](docs/architecture.md#video-premium); cả
+luồng: [`docs/explanation/premium-playback.md`](https://github.com/anhnvcoder/svp-backend/blob/main/docs/explanation/premium-playback.md)
+của backend.
 
 ## Cài đặt
 

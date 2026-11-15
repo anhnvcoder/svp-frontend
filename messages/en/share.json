@@ -19,10 +19,26 @@
     "logIn": "Log in",
     "register": "Create account",
     "later": "Not now",
-    "close": "Close"
+    "close": "Close",
+    "premiumTitle": "Log in to watch the whole video",
+    "premiumBody": "With an SVP account you can choose a tier and watch premium videos in full."
   },
   "notFound": {
     "title": "Video not found",
     "body": "The video may have been removed, or the link is wrong."
+  },
+  "premium": {
+    "title": "Premium video",
+    "previewBody": "You are watching a preview. Choose a tier to watch the whole video.",
+    "guestBody": "You are watching a preview. Log in to choose a tier and watch the whole video.",
+    "heldBody": "You are watching the whole video with the {tier} tier.",
+    "authorBody": "Your video: you can watch every quality.",
+    "tiersLabel": "Choose a tier",
+    "buy": "Buy {tier} (simulated)",
+    "held": "{tier} · current",
+    "simulated": "Simulated purchase: nothing is charged.",
+    "logIn": "Log in to watch it all",
+    "failed": "The tier could not be bought. Try again later.",
+    "rateLimited": "You're going a bit fast. Try again in a few seconds."
   }
 }

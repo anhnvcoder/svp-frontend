@@ -8,13 +8,20 @@ vi.mock("@/features/monitoring/reporter", () => ({ handleClientError: vi.fn() })
 
 const mediaOrigin = "http://127.0.0.1:9000";
 
-type Handler = (event: string, data: { fatal?: boolean }) => void;
+interface ErrorData {
+  fatal?: boolean;
+  details?: string;
+  response?: { code: number };
+}
+
+type Handler = (event: string, data: ErrorData) => void;
 
 // Stands in for hls.js: records what the pool does with each instance.
 class FakeHls {
   static instances: FakeHls[] = [];
   static supported = true;
   static Events = { ERROR: "hlsError", MEDIA_ATTACHED: "hlsMediaAttached" };
+  static ErrorDetails = { FRAG_LOAD_ERROR: "fragLoadError", MANIFEST_LOAD_ERROR: "manifestLoadError" };
   static isSupported() {
     return FakeHls.supported;
   }
@@ -43,7 +50,7 @@ class FakeHls {
   destroy() {
     this.destroyed = true;
   }
-  emit(event: string, data: { fatal?: boolean }) {
+  emit(event: string, data: ErrorData) {
     for (const handler of this.handlers.get(event) ?? []) {
       handler(event, data);
     }
@@ -406,6 +413,123 @@ describe("PlayerPool", () => {
     expect(events.onState).toHaveBeenLastCalledWith(0, "error");
     expect(FakeHls.instances).toHaveLength(0);
     expect(host?.querySelector("video")?.getAttribute("src")).toBeNull();
+  });
+
+  describe("a premium playlist on this origin", () => {
+    const premiumPath = "/api/videos/0192f0c1-0000-7000-8000-000000000001/playback/master.m3u8";
+    const premium: PoolSource[] = [{ index: 0, playlistUrl: premiumPath }];
+    const refused = { fatal: true, details: FakeHls.ErrorDetails.FRAG_LOAD_ERROR, response: { code: 403 } };
+
+    async function playPremium(events = callbacks()) {
+      const pool = new PlayerPool(mediaOrigin, events, loader);
+      const [host] = hosts(1);
+      pool.sync(0, premium, () => host ?? null, true);
+      await settle();
+      return { pool, host, events };
+    }
+
+    it("plays the master playlist path of a premium video", async () => {
+      const { events } = await playPremium();
+      expect(FakeHls.instances).toHaveLength(1);
+      expect(FakeHls.instances[0]?.source).toBe(premiumPath);
+      expect(events.onState).not.toHaveBeenCalledWith(0, "error");
+    });
+
+    it.each([
+      ["a rendition playlist", "/api/videos/0192f0c1-0000-7000-8000-000000000001/playback/360p.m3u8"],
+      ["an upper case id", "/api/videos/0192F0C1-0000-7000-8000-000000000001/playback/master.m3u8"],
+      ["another host's path", `https://evil.example${premiumPath}`],
+      ["a protocol-relative URL", `//evil.example${premiumPath}`],
+      ["dot segments", "/api/videos/0192f0c1-0000-7000-8000-000000000001/../../me/playback/master.m3u8"],
+      ["a query", `${premiumPath}?x=1`],
+      ["a path outside /api", "/videos/0192f0c1-0000-7000-8000-000000000001/playback/master.m3u8"],
+    ])("refuses %s", async (_name, playlistUrl) => {
+      const events = callbacks();
+      const pool = new PlayerPool(mediaOrigin, events, loader);
+      const [host] = hosts(1);
+      pool.sync(0, [{ index: 0, playlistUrl }], () => host ?? null, true);
+      await settle();
+      expect(events.onState).toHaveBeenLastCalledWith(0, "error");
+      expect(FakeHls.instances).toHaveLength(0);
+    });
+
+    it("loads the playlist once more where it was when its segments are refused, then shows the error", async () => {
+      const { host, events } = await playPremium();
+      const video = host?.querySelector("video");
+      Object.defineProperty(video, "currentTime", { configurable: true, value: 7.5 });
+      FakeHls.instances[0]?.emit(FakeHls.Events.ERROR, refused);
+      await settle();
+      expect(FakeHls.instances).toHaveLength(2);
+      expect(FakeHls.instances[0]?.destroyed).toBe(true);
+      expect(FakeHls.instances[1]?.source).toBe(premiumPath);
+      expect(FakeHls.instances[1]?.config.startPosition).toBe(7.5);
+      expect(events.onState).not.toHaveBeenCalledWith(0, "error");
+
+      FakeHls.instances[1]?.emit(FakeHls.Events.ERROR, refused);
+      await settle();
+      expect(FakeHls.instances).toHaveLength(2);
+      expect(events.onState).toHaveBeenLastCalledWith(0, "error");
+    });
+
+    it("reloads again after it played: each long pause may outlast the signatures", async () => {
+      const { host } = await playPremium();
+      FakeHls.instances[0]?.emit(FakeHls.Events.ERROR, refused);
+      await settle();
+      start(host, "playing");
+      FakeHls.instances[1]?.emit(FakeHls.Events.ERROR, refused);
+      await settle();
+      expect(FakeHls.instances).toHaveLength(3);
+    });
+
+    it("shows the error at once for a refused master playlist (no tier) or another failure", async () => {
+      for (const data of [
+        { fatal: true, details: FakeHls.ErrorDetails.MANIFEST_LOAD_ERROR, response: { code: 403 } },
+        { fatal: true, details: FakeHls.ErrorDetails.FRAG_LOAD_ERROR, response: { code: 404 } },
+      ]) {
+        FakeHls.instances = [];
+        const { events } = await playPremium();
+        FakeHls.instances[0]?.emit(FakeHls.Events.ERROR, data);
+        await settle();
+        expect(FakeHls.instances).toHaveLength(1);
+        expect(events.onState).toHaveBeenLastCalledWith(0, "error");
+      }
+    });
+
+    it("never reloads a public playlist whose segments are refused", async () => {
+      const events = callbacks();
+      const pool = new PlayerPool(mediaOrigin, events, loader);
+      const [host] = hosts(1);
+      pool.sync(0, sources(1), () => host ?? null, true);
+      await settle();
+      FakeHls.instances[0]?.emit(FakeHls.Events.ERROR, refused);
+      await settle();
+      expect(FakeHls.instances).toHaveLength(1);
+      expect(events.onState).toHaveBeenLastCalledWith(0, "error");
+    });
+
+    it("natively, loads the playlist once more on an error and resumes where it was", async () => {
+      FakeHls.supported = false;
+      const { host, events } = await playPremium();
+      const video = host?.querySelector("video") as HTMLVideoElement;
+      let position = 12;
+      Object.defineProperty(video, "currentTime", {
+        configurable: true,
+        get: () => position,
+        set: (value: number) => (position = value),
+      });
+      const load = vi.spyOn(video, "src", "set");
+      video.dispatchEvent(new Event("error"));
+      await settle();
+      expect(load).toHaveBeenCalledWith(premiumPath);
+      position = 0;
+      video.dispatchEvent(new Event("loadedmetadata"));
+      expect(position).toBe(12);
+      expect(events.onState).not.toHaveBeenCalledWith(0, "error");
+
+      video.dispatchEvent(new Event("error"));
+      await settle();
+      expect(events.onState).toHaveBeenLastCalledWith(0, "error");
+    });
   });
 
   it("plays HLS natively only when there is no MediaSource", async () => {

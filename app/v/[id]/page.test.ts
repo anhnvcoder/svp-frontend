@@ -21,6 +21,7 @@ vi.mock("next-intl/server", () => ({
 }));
 
 const { default: VideoPage, generateMetadata } = await import("./page");
+const { purchaseTierAction } = await import("@/server/entitlement-actions");
 
 const videoId = "0192f0c1-0000-7000-8000-000000000001";
 const authorId = "0192f0c1-7a3e-7c4b-9d2e-000000000002";
@@ -35,7 +36,7 @@ const video: FeedItem = {
   author: { user_id: authorId, handle: "minhanh", display_name: "Minh Anh" },
   stats: { view_count: 3, like_count: 2, liked_by_me: false },
 };
-const shown: LoadedPage = { kind: "video", video, viewerId: null, loadedAt: 1_760_000_000_000 };
+const shown: LoadedPage = { kind: "video", video, entitlementTier: null, viewerId: null, loadedAt: 1_760_000_000_000 };
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
 const t = messagesFor("vi").share;
@@ -123,8 +124,13 @@ describe("/v/[id] page", () => {
     expect(rateLimitWait(error)).toBeNull();
   });
 
-  it("hands the share screen the video, the viewer and the media origin, with the feed and share messages and its link's spinner label only", async () => {
-    loader.load.mockResolvedValue({ ...shown, viewerId: "0192f0c1-7a3e-7c4b-9d2e-000000000001" });
+  it("hands the share screen the video, the viewer, their tier, the purchase action and the media origin, with the feed and share messages and its link's spinner label only", async () => {
+    loader.load.mockResolvedValue({
+      ...shown,
+      video: { ...video, premium: true },
+      entitlementTier: "hd",
+      viewerId: "0192f0c1-7a3e-7c4b-9d2e-000000000001",
+    });
     const element = (await VideoPage(params(videoId))) as ReactElement<{
       messages: Record<string, unknown>;
       children: ReactElement<Record<string, unknown>>;
@@ -136,8 +142,10 @@ describe("/v/[id] page", () => {
       common: { loading: messagesFor("vi").common.loading },
     });
     expect(element.props.children.props).toEqual({
-      video,
+      video: { ...video, premium: true },
       viewerId: "0192f0c1-7a3e-7c4b-9d2e-000000000001",
+      entitlementTier: "hd",
+      purchaseAction: purchaseTierAction,
       mediaOrigin: testEnv.mediaOrigin,
       loadedAt: shown.loadedAt,
       appName: "SVP",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { cleanPage, shareUrl, type FeedItem } from "./api";
+import { cleanPage, isTier, premiumPlaylistPath, shareUrl, type FeedItem } from "./api";
+import { isPremiumPlaylistPath } from "./media-url";
 
 const authorId = "0192f0c1-7a3e-7c4b-9d2e-000000000002";
 const item: FeedItem = {
@@ -49,6 +50,15 @@ describe("cleanPage", () => {
     expect(cleanPage({ items: [bare], next_cursor: "" }).items).toEqual([bare]);
   });
 
+  it("keeps the premium flag of a premium video, and drops one that is not true", () => {
+    expect(cleanPage({ items: [{ ...item, premium: true }], next_cursor: "" }).items).toEqual([
+      { ...item, premium: true },
+    ]);
+    const odd = { ...item, premium: "yes" } as unknown as FeedItem;
+    const [cleaned] = cleanPage({ items: [odd], next_cursor: "" }).items;
+    expect(cleaned && "premium" in cleaned).toBe(false);
+  });
+
   it("drops items whose ids are not canonical UUIDs", () => {
     const page = { items: [item, { ...item, video_id: "../x" }, { ...item, author_id: "A" }], next_cursor: "" };
     expect(cleanPage(page).items).toEqual([item]);
@@ -58,5 +68,27 @@ describe("cleanPage", () => {
 describe("shareUrl", () => {
   it("is /v/<id> on the given origin", () => {
     expect(shareUrl("http://localhost:3001", item.video_id)).toBe(`http://localhost:3001/v/${item.video_id}`);
+  });
+});
+
+describe("premiumPlaylistPath", () => {
+  it("is the master playlist of the video through this server's /api, which the player accepts", () => {
+    const path = premiumPlaylistPath(item.video_id);
+    expect(path).toBe(`/api/videos/${item.video_id}/playback/master.m3u8`);
+    expect(isPremiumPlaylistPath(path)).toBe(true);
+  });
+});
+
+describe("isTier", () => {
+  it.each([
+    ["sd", true],
+    ["hd", true],
+    ["fhd", true],
+    ["SD", false],
+    ["4k", false],
+    ["", false],
+    [null, false],
+  ])("%j: %s", (value, expected) => {
+    expect(isTier(value)).toBe(expected);
   });
 });

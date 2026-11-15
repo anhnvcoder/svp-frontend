@@ -81,6 +81,26 @@ vẫn trả lời ngay: màn hình feed phủ skeleton lên tab cũ trong lúc r
   dù đã có dữ liệu. hls.js tải segment mà không cần `play()`; player HLS riêng của trình duyệt (không có MediaSource) thì không, nên
   với nó thì gọi phát ngay.
 
+### Video premium
+
+Video premium (`premium: true` trong item) công khai chỉ ở bản xem thử: `playlist_url` mà gateway trả trỏ bản đó, nên feed và người
+chưa có vé phát nó như mọi video, kèm nhãn "Xem thử" (`components/feed/premium-badge.tsx`). Luồng đầy đủ (vé, bản xem thử, chữ ký,
+hạn) ở [`docs/explanation/premium-playback.md`](https://github.com/anhnvcoder/svp-backend/blob/main/docs/explanation/premium-playback.md)
+của backend; phần dưới chỉ là phía web.
+
+- **Vé đọc ở server.** Trang `/v/{id}` đọc `entitlement_tier` của `GET /videos/{id}` (`server/video-page.ts`). Có vé thì trình phát
+  nhận `/api/videos/{id}/playback/master.m3u8`: cùng origin, nên cookie phiên đi kèm và BFF gọi gateway với token của phiên; token
+  không bao giờ tới trình duyệt. Master đã lọc chỉ chứa URI tương đối `<rendition>.m3u8`, nên playlist của rendition cũng qua BFF.
+  Segment là URL tuyệt đối đã ký, chỉ tải được từ media origin mà CSP cho phép (CSP không có ngoại lệ nào cho premium).
+- **BFF chỉ mở hai dạng playlist.** Allowlist của `server/api-proxy.ts` nhận `GET /videos/{id}/playback/<tên>.m3u8` với `<tên>` từ 1 tới
+  16 chữ thường hay số, đúng luật tách `{file}` của gateway; mọi dạng khác (segment, đường con, ký tự thoát) là 404 ở BFF.
+  `PUT /me/entitlements/{video_id}` không qua `/api`: chỉ Server Action `server/entitlement-actions.ts` gọi nó.
+- **Mua giả lập là một form.** Nút chọn gói gửi Server Action, không cần JavaScript; xong thì action render lại trang, trang đọc vé mới
+  và trình phát đổi sang playlist đầy đủ. Không thu tiền.
+- **Chữ ký hết hạn.** Tạm dừng lâu hơn hạn chữ ký làm segment trả 403: player tải lại playlist một lần, từ đúng vị trí đang xem
+  (`player-pool.ts`), vì playlist mới mang chữ ký mới. Lỗi lần nữa trước khi phát được thì hiện lỗi; khi đó trang hỏi lại server một
+  lần, và nếu vé không còn (403 `NOT_ENTITLED`) thì quay về bản xem thử với nút chọn gói, không vòng lặp tải lại.
+
 ## Tên hiển thị (quy tắc kiểm ở trình duyệt)
 
 `features/profile/display-name.ts` lặp lại quy tắc của user-service từng ký tự một (`normalizeDisplayName` trong

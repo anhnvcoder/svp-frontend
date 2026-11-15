@@ -19,10 +19,26 @@
     "logIn": "Đăng nhập",
     "register": "Tạo tài khoản",
     "later": "Để sau",
-    "close": "Đóng"
+    "close": "Đóng",
+    "premiumTitle": "Đăng nhập để xem trọn video",
+    "premiumBody": "Có tài khoản SVP, bạn chọn được gói để xem trọn video premium."
   },
   "notFound": {
     "title": "Không tìm thấy video",
     "body": "Video có thể đã bị xoá hoặc đường dẫn không đúng."
+  },
+  "premium": {
+    "title": "Video premium",
+    "previewBody": "Bạn đang xem thử. Chọn gói để xem trọn video.",
+    "guestBody": "Bạn đang xem thử. Đăng nhập để chọn gói và xem trọn video.",
+    "heldBody": "Bạn đang xem trọn video với gói {tier}.",
+    "authorBody": "Video của bạn: bạn xem được mọi chất lượng.",
+    "tiersLabel": "Chọn gói",
+    "buy": "Mua {tier} (giả lập)",
+    "held": "{tier} · đang dùng",
+    "simulated": "Mua giả lập: không thu tiền.",
+    "logIn": "Đăng nhập để xem trọn",
+    "failed": "Chưa mua được gói. Thử lại sau.",
+    "rateLimited": "Bạn thao tác hơi nhanh. Thử lại sau ít giây."
   }
 }
