@@ -33,6 +33,9 @@ const routes: readonly Route[] = [
   { pattern: new RegExp(`^/videos/${id}/complete$`), methods: ["POST"], query: [] },
   { pattern: new RegExp(`^/videos/${id}/like$`), methods: ["PUT", "DELETE"], query: [] },
   { pattern: new RegExp(`^/videos/${id}/views$`), methods: ["POST"], query: [] },
+  // The playlists of a premium video: the gateway's one `{file}` segment, either `master.m3u8` or
+  // `<rendition>.m3u8`, a rendition being 1 to 16 lower-case letters or digits.
+  { pattern: new RegExp(`^/videos/${id}/playback/[a-z0-9]{1,16}\\.m3u8$`), methods: ["GET"], query: [] },
   { pattern: new RegExp(`^/me/following/${id}$`), methods: ["PUT", "DELETE"], query: [] },
   { pattern: /^\/me$/, methods: ["GET"], query: [] },
   { pattern: /^\/me\/videos$/, methods: ["GET"], query: ["cursor", "page_size"] },

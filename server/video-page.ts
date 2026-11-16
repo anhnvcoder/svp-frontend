@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
 import { cache } from "react";
 import { z } from "zod";
-import type { FeedItem } from "@/features/feed/api";
+import { tiers, type FeedItem, type Tier } from "@/features/feed/api";
 import { isMediaUrl } from "@/features/feed/media-url";
 import { serverEnv, type ServerEnv } from "./env";
 import { clientAddressOf, gatewayClient, retryAfterSeconds, type ClientAddress } from "./gateway";
@@ -26,9 +26,10 @@ export function isVideoId(value: string): boolean {
 }
 
 export type VideoPage =
-  // `viewerId` is the logged-in user, null for a guest. `loadedAt` is when the gateway answered (ms since the epoch),
-  // the clock the page counts "2 days ago" from, so the server render and hydration read the same text.
-  | { kind: "video"; video: FeedItem; viewerId: string | null; loadedAt: number }
+  // `viewerId` is the logged-in user, null for a guest. `entitlementTier` is the tier the viewer holds on a premium
+  // video, null when they hold none. `loadedAt` is when the gateway answered (ms since the epoch), the clock the page
+  // counts "2 days ago" from, so the server render and hydration read the same text.
+  | { kind: "video"; video: FeedItem; entitlementTier: Tier | null; viewerId: string | null; loadedAt: number }
   // Not a video anyone may watch here: no such id, or not READY (the author's own unpublished video included).
   | { kind: "not-found" }
   | { kind: "rate-limited"; retryAfterSeconds: number }
@@ -54,6 +55,10 @@ const videoSchema = z.object({
   playlist_url: z.string(),
   thumbnail_url: z.string(),
   published_at: z.iso.datetime({ offset: true }),
+  // Anything but true is an ordinary video, and a malformed tier is none: either way the page plays the public
+  // playlist_url, never more than the gateway granted.
+  premium: z.literal(true).optional().catch(undefined),
+  entitlement_tier: z.enum(tiers).optional().catch(undefined),
   // A malformed author or stats object costs only that part, never the video.
   author: authorSchema.optional().catch(undefined),
   stats: z
@@ -62,14 +67,18 @@ const videoSchema = z.object({
     .catch(undefined),
 });
 
-// The video as the feed's components take it. A public video has no liked_by_me: a guest likes nothing.
-function toFeedItem(data: unknown, videoId: string): FeedItem | null {
+// The video as the feed's components take it, and the viewer's tier of a premium video. A public video has no
+// liked_by_me: a guest likes nothing.
+function toFeedItem(data: unknown, videoId: string): { item: FeedItem; tier: Tier | null } | null {
   const parsed = videoSchema.safeParse(data);
   if (!parsed.success || parsed.data.video_id !== videoId) {
     return null;
   }
-  const { author, stats, ...video } = parsed.data;
+  const { author, stats, premium, entitlement_tier, ...video } = parsed.data;
   const item: FeedItem = video;
+  if (premium) {
+    item.premium = true;
+  }
   // The gateway joins the profile by author_id; one of someone else is not shown as this video's author.
   if (author && author.user_id === video.author_id) {
     item.author = author;
@@ -81,7 +90,7 @@ function toFeedItem(data: unknown, videoId: string): FeedItem | null {
       liked_by_me: stats.liked_by_me ?? false,
     };
   }
-  return item;
+  return { item, tier: (premium && entitlement_tier) || null };
 }
 
 type Answer = { data?: unknown; response: Response };
@@ -102,7 +111,9 @@ function fromAnswer({ data, response }: Answer, videoId: string, viewerId: strin
     return { kind: "not-found" };
   }
   const video = toFeedItem(data, videoId);
-  return video ? { kind: "video", video, viewerId, loadedAt: Date.now() } : { kind: "unavailable" };
+  return video
+    ? { kind: "video", video: video.item, entitlementTier: video.tier, viewerId, loadedAt: Date.now() }
+    : { kind: "unavailable" };
 }
 
 // The usable session and the service that hands it out, or null when the visitor counts as a guest here: no session,

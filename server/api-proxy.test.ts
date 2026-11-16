@@ -80,6 +80,19 @@ describe("proxyApiRequest without a session store", () => {
     ["a trailing slash", "GET", "/feed/explore/"],
     ["an absolute URL in the path", "GET", "/http://169.254.169.254/latest"],
     ["a feed prefix", "GET", "/feed/explore2"],
+    ["a playlist without .m3u8", "GET", `/videos/${videoId}/playback/master`],
+    ["a playlist of another type", "GET", `/videos/${videoId}/playback/master.mpd`],
+    ["an upper case rendition", "GET", `/videos/${videoId}/playback/720P.m3u8`],
+    ["a rendition of 17 characters", "GET", `/videos/${videoId}/playback/${"a".repeat(17)}.m3u8`],
+    ["an empty rendition", "GET", `/videos/${videoId}/playback/.m3u8`],
+    ["a rendition with a dot", "GET", `/videos/${videoId}/playback/a.b.m3u8`],
+    ["a rendition with a dash", "GET", `/videos/${videoId}/playback/a-b.m3u8`],
+    ["a segment of a rendition", "GET", `/videos/${videoId}/playback/index_360p_00001.ts`],
+    ["a path under a playlist", "GET", `/videos/${videoId}/playback/360p/x.m3u8`],
+    ["an escaped slash in a playlist", "GET", `/videos/${videoId}/playback/..%2F..%2Fme.m3u8`],
+    ["the playlists of no video", "GET", "/videos/playback/master.m3u8"],
+    ["the playlists without a file", "GET", `/videos/${videoId}/playback/`],
+    ["the purchase route, a Server Action only", "PUT", `/me/entitlements/${videoId}`],
   ])("answers 404 for %s", async (_name, method, path) => {
     const response = await proxyApiRequest(apiRequest(path, { method }), services);
     expect(response.status).toBe(404);
@@ -103,6 +116,8 @@ describe("proxyApiRequest without a session store", () => {
     ["DELETE", "/me/videos", "GET"],
     ["POST", `/users/${userId}/videos`, "GET"],
     ["PUT", "/profiles/alice", "GET"],
+    ["PUT", `/videos/${videoId}/playback/master.m3u8`, "GET"],
+    ["HEAD", `/videos/${videoId}/playback/360p.m3u8`, "GET"],
   ])("answers 405 for %s %s with Allow: %s", async (method, path, allow) => {
     const response = await proxyApiRequest(apiRequest(path, { method }), services);
     expect(response.status).toBe(405);
@@ -118,6 +133,7 @@ describe("proxyApiRequest without a session store", () => {
     ["an author filter on a user's videos", `/users/${userId}/videos?author_id=${videoId}`],
     ["a query on /me", "/me?fields=email"],
     ["a query on a profile", "/profiles/alice?handle=bob"],
+    ["a query on a playlist", `/videos/${videoId}/playback/master.m3u8?Signature=x`],
   ])("answers 400 for %s", async (_name, path) => {
     const response = await proxyApiRequest(apiRequest(path), services);
     expect(response.status).toBe(400);
@@ -256,6 +272,9 @@ describe.skipIf(!testRedisURL)("proxyApiRequest on the test Redis", () => {
     ["GET", `/users/${userId}/videos`, 200],
     ["GET", "/profiles/alice", 200],
     ["GET", `/profiles/a${"b".repeat(29)}`, 200],
+    ["GET", `/videos/${videoId}/playback/master.m3u8`, 200],
+    ["GET", `/videos/${videoId}/playback/360p.m3u8`, 200],
+    ["GET", `/videos/${videoId}/playback/${"a".repeat(16)}.m3u8`, 200],
     ["GET", "/profiles/u_23456789abcd", 200],
   ])("passes %s %s and its status on", async (method, path, status) => {
     const { services, sid } = await withSession();
@@ -264,6 +283,31 @@ describe.skipIf(!testRedisURL)("proxyApiRequest on the test Redis", () => {
     expect(response.status).toBe(status);
     expect(seen[0]?.method).toBe(method);
     expect(new URL(seen[0]!.url).pathname).toBe(path);
+  });
+
+  it("passes a premium playlist on with the session's token, its playlist type and no-store", async () => {
+    const { services, sid, session } = await withSession();
+    const playlist = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\n360p.m3u8\n";
+    const seen = gateway(
+      () =>
+        new HttpResponse(playlist, {
+          headers: { "Content-Type": "application/vnd.apple.mpegurl", "Cache-Control": "private, max-age=60" },
+        }),
+    );
+    const response = await proxyApiRequest(apiRequest(`/videos/${videoId}/playback/master.m3u8`, { sid }), services);
+    expect(response.status).toBe(200);
+    expect(seen[0]?.headers.get("authorization")).toBe(`Bearer ${session.access_token}`);
+    expect(response.headers.get("content-type")).toBe("application/vnd.apple.mpegurl");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe(playlist);
+  });
+
+  it("passes the gateway's 403 NOT_ENTITLED of a playlist back", async () => {
+    const { services, sid } = await withSession();
+    gateway(() => gatewayProblem(403, "NOT_ENTITLED"));
+    const response = await proxyApiRequest(apiRequest(`/videos/${videoId}/playback/master.m3u8`, { sid }), services);
+    expect(response.status).toBe(403);
+    expect(await problemCode(response)).toBe("NOT_ENTITLED");
   });
 
   it("passes the paging query of a user's videos on", async () => {

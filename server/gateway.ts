@@ -59,6 +59,7 @@ const problemCodeSchema = z.object({ code: z.string() });
 export type AuthFailureCode =
   | "INVALID_EMAIL"
   | "INVALID_PASSWORD"
+  | "PASSWORD_BLOCKLISTED"
   | "EMAIL_ALREADY_REGISTERED"
   | "INVALID_HANDLE"
   | "HANDLE_ALREADY_TAKEN"
@@ -100,7 +101,7 @@ export interface AuthGateway {
 }
 
 const knownFailures: Partial<Record<number, readonly AuthFailureCode[]>> = {
-  400: ["INVALID_EMAIL", "INVALID_PASSWORD", "INVALID_HANDLE"],
+  400: ["INVALID_EMAIL", "INVALID_PASSWORD", "PASSWORD_BLOCKLISTED", "INVALID_HANDLE"],
   401: ["INVALID_CREDENTIALS"],
   409: ["EMAIL_ALREADY_REGISTERED", "HANDLE_ALREADY_TAKEN"],
 };

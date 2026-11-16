@@ -178,6 +178,16 @@ describe("checkRegistration", () => {
 });
 
 describe("failureState", () => {
+  it.each(["INVALID_PASSWORD", "PASSWORD_BLOCKLISTED"] as const)("puts %s on the password field", (code) => {
+    expect(failureState("a@example.com", { ok: false, code }, "alice")).toEqual({
+      email: "a@example.com",
+      handle: "alice",
+      fieldErrors: { password: code },
+      formError: null,
+      retryAfterSeconds: null,
+    });
+  });
+
   it.each(["INVALID_HANDLE", "HANDLE_ALREADY_TAKEN"] as const)("puts %s on the handle field", (code) => {
     expect(failureState("a@example.com", { ok: false, code }, "alice")).toEqual({
       email: "a@example.com",
@@ -205,6 +215,7 @@ describe("AuthGateway.login and register answers", () => {
   it.each([
     [400, "INVALID_EMAIL", {}, { code: "INVALID_EMAIL" }],
     [400, "INVALID_PASSWORD", {}, { code: "INVALID_PASSWORD" }],
+    [400, "PASSWORD_BLOCKLISTED", {}, { code: "PASSWORD_BLOCKLISTED" }],
     [400, "INVALID_JSON", {}, { code: "UNAVAILABLE" }],
     [401, "INVALID_CREDENTIALS", {}, { code: "INVALID_CREDENTIALS" }],
     [409, "EMAIL_ALREADY_REGISTERED", {}, { code: "EMAIL_ALREADY_REGISTERED" }],

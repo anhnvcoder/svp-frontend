@@ -31,7 +31,7 @@ export function fakeAccessToken(userId: string): string {
 }
 
 // A token set for userId whose access token expires in `accessExpiresInMs` (negative: already expired).
-export function fakeTokens(userId: string, accessExpiresInMs = 3_600_000): TokenSet {
+export function fakeTokens(userId: string, accessExpiresInMs = 15 * 60_000): TokenSet {
   return {
     access_token: fakeAccessToken(userId),
     expires_at: new Date(Date.now() + accessExpiresInMs).toISOString(),

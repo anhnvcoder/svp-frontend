@@ -5,7 +5,9 @@ import { focusRing } from "@/components/ui/styles";
 import { cn } from "@/lib/cn";
 import { ActionRail, type RailFollow } from "./action-rail";
 import { AuthorLine, type AuthorInfo } from "./author-line";
+import type { Tier } from "@/features/feed/api";
 import { FeedTitle } from "./feed-title";
+import { PremiumBadge } from "./premium-badge";
 
 // What the player reports for the current item (features/feed/player-pool.ts).
 export type ItemPlayback = "loading" | "playing" | "paused" | "buffering" | "error";
@@ -37,6 +39,8 @@ type FeedItemProps = {
   onStageTap: () => void;
   onToggleMute: () => void;
   onRetry: () => void;
+  // Set for a premium video only: the tier the full video plays with, null while its preview plays.
+  premium?: Tier | null;
   // "share": the one video of the share page, which shows the author, title and actions in a side panel on wide
   // screens instead of over and beside the video.
   variant?: "feed" | "share";
@@ -70,6 +74,7 @@ export function FeedItem({
   onStageTap,
   onToggleMute,
   onRetry,
+  premium,
   variant = "feed",
 }: FeedItemProps) {
   const t = useTranslations("feed");
@@ -219,6 +224,7 @@ export function FeedItem({
             share && "md:hidden",
           )}
         >
+          {premium !== undefined && <PremiumBadge tier={premium} tone="media" />}
           <AuthorLine author={author} href={authorHref} publishedAgo={publishedAgo} />
           <FeedTitle title={title} />
         </div>

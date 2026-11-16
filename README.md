@@ -1,7 +1,8 @@
 # svp-frontend
 
 Web client của nền tảng video ngắn mini svp: Next.js App Router, BFF chạy trong cùng server Next (session ở Redis, gọi gateway
-của backend), feed dọc phát HLS, hồ sơ, tải video lên bằng presigned POST.
+của backend), feed dọc phát HLS, hồ sơ, tải video lên bằng presigned POST, video premium (xem thử công khai, mua giả lập một
+gói, phát trọn video qua BFF với segment đã ký).
 
 ## Mục lục
 
@@ -24,6 +25,11 @@ nói chuyện với nhau qua **hợp đồng API có version và chữ ký**, kh
 [ADR-0033](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0033-svp-web-repo.md); thiết kế web client và danh
 sách gói được dùng: [ADR-0016](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0016-web-client.md). Bản chép
 thiết kế giao diện nằm ở [`design/`](design/README.md). Vì sao code TypeScript viết như hiện tại: [`docs/architecture.md`](docs/architecture.md).
+
+Video premium phát bản xem thử ở `playlist_url` như mọi video; người có vé phát playlist đầy đủ qua `/api` của web (cùng origin,
+cookie phiên), segment là URL đã ký trên media origin. Phía web: [`docs/architecture.md`](docs/architecture.md#video-premium); cả
+luồng: [`docs/explanation/premium-playback.md`](https://github.com/anhnvcoder/svp-backend/blob/main/docs/explanation/premium-playback.md)
+của backend.
 
 ## Cài đặt
 
@@ -317,8 +323,10 @@ Từng workflow, ruleset và Renovate:
     `upload-sarif` đọc dòng của từng finding và tính fingerprint (alert qua được việc lệch dòng cùng lịch sử và việc dismiss), không chạy gì
     của repo. Là báo cáo chứ không phải check: upload lỗi vẫn làm lượt chạy đỏ.
 - `images.yml` (PR, push `main`, chạy tay, lịch hằng ngày): `plan`; PR chỉ `build-nopush` (build, quét hai chân amd64, arm64); `main`:
-  `build` (trivy chặn bí mật và CRITICAL còn lại sau `.trivyignore.yaml`, grype trên SBOM chặn Critical còn lại sau `.grype.yaml`,
-  rồi mới push), `merge` (index đa kiến trúc), `sign` (cosign keyless:
+  `build` (trivy chặn bí mật, CRITICAL và HIGH có bản vá còn lại sau `.trivyignore.yaml`, grype trên SBOM chặn Critical
+  và High có bản vá còn lại sau `.grype.yaml`,
+  [ADR-0070](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0070-scan-gate-high-fixed.md); rồi mới push),
+  `merge` (index đa kiến trúc), `sign` (cosign keyless:
   chữ ký, SBOM, attestation `vuln` ở dạng Sigstore bundle; rồi build provenance bằng `actions/attest`, quyền `attestations: write` chỉ ở
   job này), `ecr-copy` (chép bản đã ký cùng mọi referrer sang ECR stg rồi kiểm lại ở đó), `promote` (environment `promote`, token một giờ
   của GitHub App `svp-web-promoter` chỉ
@@ -329,11 +337,12 @@ Từng workflow, ruleset và Renovate:
   `gitops-ok` xanh), `rescan`
   (lịch hằng ngày: quét lại và attest lại bản web của repo này đang ở `envs/*/images/`, không đụng bản của backend, rồi làm mới bản sao ở
   ECR), `sarif`, check tổng `images-ok`.
-  - Luồng: image `ghcr.io/anhnvcoder/svp-frontend/web` build mỗi lượt từ cả cây trên runner amd64 và arm64 gốc; image cục bộ quét bằng trivy và
-    SBOM bằng grype, chặn bí mật và CRITICAL **trước** khi đẩy gì; chỉ đẩy đúng cái đã quét, rồi ghép index đa kiến trúc, ký keyless bằng cosign,
-    attest SBOM (syft) và kết quả quét, sau đó build provenance (`actions/attest`), tất cả là Sigstore bundle; digest đã ký được chép sang ECR
-    stg, kiểm lại ở đó, rồi mới được promote lên stg qua PR ở `svp-gitops`; digest đã phát hành được quét lại hằng ngày, cả bản sao ở ECR. Lý do
-    dùng ECR và role CI: [ADR-0062](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0062-ecr-registry-ci-oidc.md).
+  - Luồng: image `ghcr.io/anhnvcoder/svp-frontend/web` build mỗi lượt từ cả cây trên runner amd64 và arm64 gốc; image
+    cục bộ quét bằng trivy và SBOM bằng grype, chặn bí mật, CRITICAL và HIGH có bản vá **trước** khi đẩy gì; chỉ đẩy
+    đúng cái đã quét, rồi ghép index đa kiến trúc, ký keyless bằng cosign, attest SBOM (syft) và kết quả quét, sau đó
+    build provenance (`actions/attest`), tất cả là Sigstore bundle; digest đã ký được chép sang ECR stg, kiểm lại ở đó,
+    rồi mới được promote lên stg qua PR ở `svp-gitops`; digest đã phát hành được quét lại hằng ngày, cả bản sao ở ECR.
+    Lý do dùng ECR và role CI: [ADR-0062](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0062-ecr-registry-ci-oidc.md).
 
     ```mermaid
     flowchart LR

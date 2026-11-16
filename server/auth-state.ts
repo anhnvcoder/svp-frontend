@@ -4,7 +4,8 @@ import * as z from "zod/mini";
 // the UI translates; nothing here is secret, so client components import it. The email and handle are sent back so a
 // form posted without JavaScript keeps them; the password never is.
 
-export type AuthFieldErrorCode = "INVALID_EMAIL" | "INVALID_PASSWORD" | "INVALID_HANDLE" | "HANDLE_ALREADY_TAKEN";
+export type AuthFieldErrorCode =
+  "INVALID_EMAIL" | "INVALID_PASSWORD" | "PASSWORD_BLOCKLISTED" | "INVALID_HANDLE" | "HANDLE_ALREADY_TAKEN";
 
 export type AuthFormErrorCode = "EMAIL_ALREADY_REGISTERED" | "INVALID_CREDENTIALS" | "RATE_LIMITED" | "UNAVAILABLE";
 
@@ -13,7 +14,7 @@ export interface AuthState {
   handle: string;
   fieldErrors: {
     email?: "INVALID_EMAIL";
-    password?: "INVALID_PASSWORD";
+    password?: "INVALID_PASSWORD" | "PASSWORD_BLOCKLISTED";
     handle?: "INVALID_HANDLE" | "HANDLE_ALREADY_TAKEN";
   };
   formError: AuthFormErrorCode | null;

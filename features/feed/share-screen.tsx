@@ -10,16 +10,27 @@ import type { RailFollow } from "@/components/feed/action-rail";
 import { FeedItem } from "@/components/feed/feed-item";
 import { LoginPrompt } from "@/components/feed/login-prompt";
 import { primaryAction } from "@/components/shell/error-screen";
+import { PremiumBadge } from "@/components/feed/premium-badge";
 import { LinkPending } from "@/components/shell/link-pending";
 import { useCountdown } from "@/components/shell/use-countdown";
 import { Avatar, Button, Toast, ToastRegion } from "@/components/ui";
 import { focusRing } from "@/components/ui/styles";
 import { cn } from "@/lib/cn";
 import { formatCompact } from "@/lib/format";
-import { ApiError, copyShareLink, loginHref, recordView, type FeedItem as FeedItemData } from "./api";
+import {
+  ApiError,
+  copyShareLink,
+  loginHref,
+  premiumPlaylistPath,
+  recordView,
+  type FeedItem as FeedItemData,
+  type Tier,
+} from "./api";
 import { isMediaUrl } from "./media-url";
 import { ignoresShortcut, subscribeVisibility } from "./page-events";
 import { PlayerPool, type PlaybackState } from "./player-pool";
+import { PremiumPanel } from "./premium-panel";
+import type { PurchaseState } from "./purchase";
 import { useFollows } from "./use-follows";
 import { useLike } from "./use-like";
 import { useNow, usePublishedAgo } from "./use-now";
@@ -30,6 +41,10 @@ type ShareScreenProps = {
   video: FeedItemData;
   // The logged-in user, null for a guest.
   viewerId: string | null;
+  // The tier the viewer holds on a premium video, null when they hold none.
+  entitlementTier: Tier | null;
+  // purchaseTierAction of server/entitlement-actions.ts, for the tier buttons of a premium video.
+  purchaseAction: (previous: PurchaseState, form: FormData) => Promise<PurchaseState>;
   // MEDIA_ORIGIN of the server: the playlist and thumbnail are used only on this origin.
   mediaOrigin: string;
   // When the server got the video (ms since the epoch): the clock of "2 days ago" until the browser's takes over.
@@ -47,8 +62,17 @@ const headerLink =
 
 // The share page /v/{id}: one video played by the feed's player pool, its author, title and counts. A guest's
 // like and follow ask them to log in and come back here, and their watching records no view; a logged-in user likes,
-// follows and records a view after 2 s of playback as in the feed.
-export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }: ShareScreenProps) {
+// follows and records a view after 2 s of playback as in the feed. A premium video plays its public preview, or the
+// whole video, through this server, for a viewer holding a tier.
+export function ShareScreen({
+  video,
+  viewerId,
+  entitlementTier,
+  purchaseAction,
+  mediaOrigin,
+  loadedAt,
+  appName,
+}: ShareScreenProps) {
   const t = useTranslations("feed");
   const s = useTranslations("share");
   const locale = useLocale();
@@ -60,6 +84,10 @@ export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }:
   const register = `/register?next=${encodeURIComponent(pagePath)}`;
   // Profiles need a login: a guest sees the name without a link.
   const authorHref = author && !guest ? `/u/${author.handle}` : null;
+  const premium = video.premium === true;
+  // undefined for an ordinary video, else the tier the whole video plays with or null for the preview.
+  const premiumTier = premium ? entitlementTier : undefined;
+  const playlistUrl = premiumTier ? premiumPlaylistPath(video.video_id) : video.playlist_url;
   const publishedAgo = usePublishedAgo(useNow(loadedAt))(video.published_at);
   const posterUrl = isMediaUrl(video.thumbnail_url, mediaOrigin) ? video.thumbnail_url : null;
   // The poster is the page's largest paint: rendered on the server, this puts a high-priority preload in the <head>,
@@ -72,7 +100,7 @@ export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }:
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(true);
   const [soundChosen, setSoundChosen] = useState(false);
-  const [prompt, setPrompt] = useState<"like" | "follow" | null>(null);
+  const [prompt, setPrompt] = useState<"like" | "follow" | "premium" | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   // A like or follow got 429: both wait for its Retry-After, like the feed's.
   const [rateLimit, setRateLimit] = useState<{ seconds: number } | null>(null);
@@ -97,6 +125,13 @@ export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }:
     router.replace(login);
   }
   const redirectToLogin = useEffectEvent(toLogin);
+  // The whole video failed to play: the tier may be gone (403 NOT_ENTITLED). The page asks the gateway again and plays
+  // the preview with the tier buttons if so; otherwise the error and its retry button stay, so nothing loops.
+  const playbackFailed = useEffectEvent(() => {
+    if (premiumTier) {
+      router.refresh();
+    }
+  });
 
   function actionFailed(error: unknown, message: string, retry?: () => void) {
     if (error instanceof ApiError && error.status === 401) {
@@ -140,7 +175,12 @@ export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }:
   // The pool lives as long as the page; its callbacks only set state and read refs.
   useEffect(() => {
     const created = new PlayerPool(mediaOrigin, {
-      onState: (_index, state) => setPlayback(state),
+      onState: (_index, state) => {
+        setPlayback(state);
+        if (state === "error") {
+          playbackFailed();
+        }
+      },
       onTime: (_index, element) => {
         const bar = stage.current?.querySelector<HTMLElement>('[data-part="progress"]');
         if (bar && Number.isFinite(element.duration) && element.duration > 0) {
@@ -169,11 +209,11 @@ export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }:
   useEffect(() => {
     pool.current?.sync(
       0,
-      [{ index: 0, playlistUrl: video.playlist_url }],
+      [{ index: 0, playlistUrl }],
       () => stage.current?.querySelector<HTMLElement>('[data-part="video-host"]') ?? null,
       shouldPlay,
     );
-  }, [video.playlist_url, shouldPlay]);
+  }, [playlistUrl, shouldPlay]);
 
   // One view per page, only for a logged-in user. recordView rejects only when the session is refused (401).
   useEffect(() => {
@@ -229,6 +269,17 @@ export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }:
     publishedAgo,
   ].filter((part) => part !== null);
   const authorName = author?.display_name;
+  const premiumPanel = (className: string) =>
+    premium && (
+      <PremiumPanel
+        videoId={video.video_id}
+        tier={entitlementTier}
+        viewer={guest ? "guest" : viewerId === video.author_id ? "author" : "user"}
+        action={purchaseAction}
+        onLogIn={() => setPrompt("premium")}
+        className={className}
+      />
+    );
 
   return (
     <div className="flex h-dvh flex-col bg-surface text-foreground">
@@ -287,6 +338,7 @@ export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }:
             onStageTap={onStageTap}
             onToggleMute={() => setSound(muted)}
             onRetry={() => pool.current?.retry(0)}
+            premium={premiumTier}
           />
         </div>
 
@@ -319,6 +371,7 @@ export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }:
             )}
           </div>
           <div className="flex flex-col gap-2.5">
+            {premiumTier !== undefined && <PremiumBadge tier={premiumTier} tone="surface" />}
             {video.title && (
               <h1 className="text-xl leading-[1.45] font-semibold text-pretty break-words">{video.title}</h1>
             )}
@@ -340,6 +393,7 @@ export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }:
               {s("copyLink")}
             </Button>
           </div>
+          {premiumPanel("")}
           <div className="flex flex-col gap-3.5 rounded-lg border border-border bg-surface-raised p-5">
             <strong className="text-base font-semibold">{s("moreTitle")}</strong>
             {guest && (
@@ -356,11 +410,12 @@ export function ShareScreen({ video, viewerId, mediaOrigin, loadedAt, appName }:
       </main>
 
       <div className="flex shrink-0 flex-col gap-2 border-t border-border px-4 pt-3.5 pb-4.5 md:hidden">
+        {premiumPanel("md:hidden")}
         <Link href="/" className={cn(primaryAction, "min-h-13 text-base", focusRing)}>
           <Play aria-hidden="true" size={18} />
           {s("openInApp")}
         </Link>
-        {guest && (
+        {guest && !premium && (
           // Room for two lines whether the hint takes one or two: a name near the end of a line can wrap in the
           // fallback font and not in the web font, and a bar that changed height when the font arrives would move
           // the video above it.
