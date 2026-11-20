@@ -14,7 +14,7 @@
 # same commit builds from the same base on the machine and in CI, and Renovate proposes each new digest as a reviewed
 # change. The Node major (26, also in the runtime image's name below) moves with .nvmrc and engines of package.json in
 # one Renovate pull request.
-FROM node:26-trixie@sha256:6d2c7d5d074bf72f81ddc252b4fbb5d625bc028eeda49cb4b8c2ff8eda1ee617 AS build
+FROM node:26-trixie@sha256:e18c3ccdf7d71619990b0e85639f506e2028a95410999cab24cc373cbd10e0ac AS build
 WORKDIR /src
 ENV NEXT_TELEMETRY_DISABLED=1
 
