@@ -57,3 +57,6 @@ overrides:
   # publishing provenance; express 4 (lhci's server) asks for ~1.20.5, which the fix satisfies. The override keeps the
   # fixed version from sliding back while express still accepts the vulnerable ones.
   "express>body-parser@<1.20.9": 1.20.9
+minimumReleaseAgeExclude:
+  # Renovate security update: next@16.4.5
+  - next@16.4.5
