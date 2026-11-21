@@ -390,8 +390,9 @@ jobs:
         if: failure()
         run: make -C backend ps
       # The reports lighthouse/run.sh wrote after replacing the session cookie in them (it deletes them when a cookie
-      # value is still found). Its hidden .lighthouseci/ folder, with the results before that replacement, is matched by
-      # neither pattern. Skipped when the step was cancelled mid-run or never ran.
+      # value is still found), and the *.trace.json of each run, which the *.json pattern matches. Its hidden
+      # .lighthouseci/ folder, with the results before that replacement, is matched by neither pattern. Skipped when
+      # the step was cancelled mid-run or never ran.
       - name: Keep the Lighthouse reports
         if: always() && (steps.lighthouse.outcome == 'success' || steps.lighthouse.outcome == 'failure')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -176,10 +176,12 @@ db 10 của stack (Valkey của cluster khi chạy k3d), bằng `svp-valkey` c�
 
   Sau đó là một bảng LCP, CLS, TBT và phần tử LCP của từng lượt, các lỗi console, và `lhci assert` theo ngưỡng của
   `lighthouse/lighthouserc.json`, mỗi ngưỡng kiểm trên trung vị của ba lượt của một trang. Giá trị ngưỡng và lý do của chúng ở
-  [`AGENTS.md`](AGENTS.md). Báo cáo, HTML và JSON mỗi lượt cùng `manifest.json`, vào `test-results/lighthouse/` (gitignore); không upload đi đâu. Thoát với status của `lhci assert`.
+  [`AGENTS.md`](AGENTS.md). Báo cáo, HTML và JSON mỗi lượt cùng `manifest.json`, vào `test-results/lighthouse/` (gitignore);
+  không upload đi đâu. Mỗi lượt còn một `localhost_<giờ chạy>-0.trace.json` (cờ `saveAssets` của Lighthouse) cạnh báo cáo: trace
+  chỉ ra phần tử ứng viên LCP và lúc nó vẽ; log DevTools chứa header request nên bị xoá. Thoát với status của `lhci assert`.
   - Cookie không vào output và báo cáo: Lighthouse đọc nó từ một file riêng, bản chép mà mọi kết quả ghi lại
-    (`configSettings.extraHeaders`) bị thay trước khi báo cáo được ghi, lượt chạy đỏ nếu vẫn tìm thấy giá trị cookie trong một kết quả
-    hay báo cáo, và phiên được đăng xuất khi thoát để cookie ngừng dùng được.
+    (`configSettings.extraHeaders`) bị thay trước khi báo cáo được ghi, lượt chạy đỏ nếu vẫn tìm thấy giá trị cookie trong một kết quả,
+    báo cáo hay trace, và phiên được đăng xuất khi thoát để cookie ngừng dùng được.
   - **LOCAL LAB ONLY:** `source` `deploy/compose/lib.sh` của backend xoá các khoá rate limit đăng ký của gateway (`svp:gw:rl:register:*`)
     ở Valkey db 10 của stack bằng `SCAN` + `DEL` qua `svp-valkey` của backend, như `e2e/seed.sh` và `make smoke` của backend. Không trỏ nó vào stack dùng
     chung.
