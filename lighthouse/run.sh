@@ -45,6 +45,13 @@ cleanup() {
       echo "warn  logout answered $status: the session ends with its TTL" >&2
     fi
   fi
+  # On every exit, a failed one too, since the CI artifact keeps any *.json here: the DevTools logs hold the request
+  # headers, the session cookie among them, and are not kept; the traces stay only while no cookie value is in them.
+  rm -f "$reports"/*.devtoolslog.json
+  if [[ -s $work/cookie-values ]] && grep -qsF -f "$work/cookie-values" "$reports"/*.trace.json; then
+    rm -f "$reports"/*.trace.json
+    echo "warn  a session cookie value was in a Lighthouse trace: the traces of this run are removed" >&2
+  fi
   rm -rf "$lhci_dir" "$work"
 }
 trap cleanup EXIT
@@ -81,8 +88,12 @@ jq -r '.Cookie | split("; ")[] | sub("^[^=]*="; "") | select(length >= 16)' "$wo
 
 mkdir -p "$reports"
 cd "$reports"
-"$lhci" collect --config="$rc" --chromePath="$chrome" --url="$web_url/" --settings.extraHeaders="$work/headers.json"
-"$lhci" collect --config="$rc" --chromePath="$chrome" --url="$web_url/v/$video_id" --additive
+rm -f "$reports"/*.trace.json "$reports"/*.devtoolslog.json
+# --settings.saveAssets makes Lighthouse write each run's trace and DevTools log next to the reports, as
+# localhost_<fetch time>-0.trace.json: the trace says which element was the LCP candidate and when it painted.
+"$lhci" collect --config="$rc" --chromePath="$chrome" --url="$web_url/" --settings.extraHeaders="$work/headers.json" \
+  --settings.saveAssets
+"$lhci" collect --config="$rc" --chromePath="$chrome" --url="$web_url/v/$video_id" --additive --settings.saveAssets
 
 shopt -s nullglob
 results=("$lhci_dir"/lhr-*.json)
@@ -104,10 +115,14 @@ rm -f "$lhci_dir"/lhr-*.html
 
 written=()
 while IFS= read -r path; do written+=("$path"); done < <(jq -r '.[] | .htmlPath, .jsonPath' "$reports/manifest.json")
-if grep -qF -f "$work/cookie-values" "${results[@]}" "${written[@]}"; then
-  rm -f "${written[@]}"
-  fail "a session cookie value is still in a Lighthouse result or report (reports of this run removed)"
+traces=("$reports"/*.trace.json)
+if grep -qF -f "$work/cookie-values" "${results[@]}" "${written[@]}" "${traces[@]}"; then
+  rm -f "${written[@]}" "${traces[@]}"
+  fail "a session cookie value is still in a Lighthouse result, report or trace (files of this run removed)"
 fi
+# A run lhci retried (a runtime error such as NO_FCP) saved a trace too, so there can be more traces than results.
+((${#traces[@]} >= ${#results[@]})) ||
+  fail "expected a Lighthouse trace per result (${#results[@]}), found ${#traces[@]}"
 
 echo "web-lighthouse (Lighthouse mobile, three runs per page, thresholds on the median):"
 jq -rs --arg origin "$web_url" '.[] |
@@ -118,6 +133,6 @@ jq -rs --arg origin "$web_url" '.[] |
     if . == null then "none" else "\(.selector): \(.snippet)" end)",
   "    console errors: \(.audits["errors-in-console"].details.items // [] | length)",
   ((.audits["errors-in-console"].details.items // [])[] | "      \(.source): \(.description)")' "${results[@]}"
-echo "  reports in test-results/lighthouse/ (manifest.json lists them)"
+echo "  reports in test-results/lighthouse/ (manifest.json lists them), traces beside them (*.trace.json)"
 
 "$lhci" assert --config="$rc"
