@@ -10,9 +10,10 @@
 # 0.4-0.7 s on mobile); the Core Web Vitals targets are 2500 ms and 200 ms, and the budgets come down as the pages get
 # faster.
 
-# The cookie stays out of the output and the reports: Lighthouse reads it from a private file, the copy every result
-# records (configSettings.extraHeaders) is replaced before the reports are written, the run fails when a cookie value
-# is still found in a result or a report, and the session is logged out at exit so the cookie stops working.
+# The cookie stays out of the output and the reports: Lighthouse reads it from a private file, and the copy every
+# result records (configSettings.extraHeaders) is replaced before the reports are written. The DevTools logs hold the
+# request headers, so they are removed on exit; a trace is removed when a cookie value is in it, and the run fails
+# when one is still found in a result or a report. The session is logged out at exit so the cookie stops working.
 
 # LOCAL LAB ONLY: sourcing deploy/compose/lib.sh of the backend deletes the gateway's register rate limit keys
 # (svp:gw:rl:register:*) in Valkey db 10 of the stack with SCAN + DEL through the backend's svp-valkey, as
@@ -48,7 +49,8 @@ cleanup() {
   # On every exit, a failed one too, since the CI artifact keeps any *.json here: the DevTools logs hold the request
   # headers, the session cookie among them, and are not kept; the traces stay only while no cookie value is in them.
   rm -f "$reports"/*.devtoolslog.json
-  if [[ -s $work/cookie-values ]] && grep -qsF -f "$work/cookie-values" "$reports"/*.trace.json; then
+  # /dev/null last: with no trace the glob is empty, and grep would read stdin instead.
+  if [[ -s $work/cookie-values ]] && grep -qsF -f "$work/cookie-values" "$reports"/*.trace.json /dev/null; then
     rm -f "$reports"/*.trace.json
     echo "warn  a session cookie value was in a Lighthouse trace: the traces of this run are removed" >&2
   fi
