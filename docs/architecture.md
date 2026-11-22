@@ -1,5 +1,13 @@
 # Kiến trúc web client
 
+> **Tóm tắt**
+>
+> - **Trả lời:** vì sao code TypeScript của web client viết như hiện tại, theo từng vùng: phiên và refresh token, feed và player,
+>   video premium, số đo trình duyệt, telemetry của server, i18n, source map, test e2e.
+> - **Vì sao:** mỗi mục nêu lý do và cái giá của một lựa chọn khó thấy từ code; thiết kế chung của lab ở `docs/` của backend.
+> - **Đọc tiếp:** [`README.md`](../README.md) cho lệnh chạy, kiểm và phát hành;
+>   [ADR-0016](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0016-web-client.md) cho quyết định gốc.
+
 Trang này giải thích **vì sao** code TypeScript của web client viết như hiện tại, theo từng vùng của code. Thiết kế chung của lab
 (khối, luồng giữa các service, mô hình mối đe doạ) ở `docs/` của backend; trang này không chép lại. Quyết định và danh sách gói của web
 client: [ADR-0016](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0016-web-client.md). Lệnh chạy, kiểm và phát hành: [`README.md`](../README.md).

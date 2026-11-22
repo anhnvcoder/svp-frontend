@@ -1,5 +1,13 @@
 # Thiết kế giao diện web (bản chép từ Claude Design)
 
+> **Tóm tắt**
+>
+> - **Trả lời:** thư mục này giữ gì (bản chép thiết kế giao diện: token, màn hình mobile và desktop, component) và file nào mở để xem gì.
+> - **Làm gì:** mở `SVP Mobile.dc.html`, `SVP Desktop.dc.html` hay `SVP Design System.dc.html` bằng trình duyệt; chỉ để tham khảo,
+>   không file nào được web phục vụ hay import vào code.
+> - **Vì sao:** code đọc thiết kế từ repo thay vì từ dịch vụ ngoài; các chỗ hiện thực khác bản thiết kế nằm ở cuối trang.
+> - **Đọc tiếp:** [`docs/architecture.md`](../docs/architecture.md#bản-thiết-kế-của-các-màn-hình): màn hình nào ứng với mã nào.
+
 Thư mục này giữ nguyên văn thiết kế giao diện của web client, để phần code đọc thiết kế từ repo thay vì từ dịch vụ ngoài.
 Nội dung ở đây **chỉ để tham khảo**: không file nào được web phục vụ, không file nào được import vào code.
 
