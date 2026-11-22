@@ -1,5 +1,14 @@
 # svp-frontend
 
+> **Tóm tắt**
+>
+> - **Trả lời:** repo này là gì (web client Next.js của svp), cài và chạy thế nào, hợp đồng API với backend ghim ra sao, CI phát hành
+>   image web tới stg thế nào.
+> - **Làm gì:** `make install`, `make check` để cài và kiểm; `make dev` để chạy web trên máy; e2e, đo, Lighthouse chạy trên stack backend.
+> - **Vì sao:** web và backend là hai repo, nói chuyện qua hợp đồng API có version và chữ ký; lý do ở
+>   [ADR-0033](https://github.com/anhnvcoder/svp-backend/blob/main/docs/adr/0033-svp-web-repo.md).
+> - **Đọc tiếp:** [`docs/architecture.md`](docs/architecture.md): vì sao code TypeScript viết như hiện tại.
+
 Web client của nền tảng video ngắn mini svp: Next.js App Router, BFF chạy trong cùng server Next (session ở Redis, gọi gateway
 của backend), feed dọc phát HLS, hồ sơ, tải video lên bằng presigned POST, video premium (xem thử công khai, mua giả lập một
 gói, phát trọn video qua BFF với segment đã ký).
