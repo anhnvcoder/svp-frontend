@@ -3,6 +3,6 @@
 # deploy/ci/scan-gate.sh --check-ignorefile enforces both in job config). grype reads no date: remove or renew the
 # rule with its entry. A rule's package name is a regex: every metacharacter escaped with \.
 
-# Empty: every entry of .trivyignore.yaml is for a dev dependency of pnpm-lock.yaml that never reaches the image.
+# Empty: .trivyignore.yaml holds no entry for a package of the web image.
 # Design notes: README.md.
 ignore: []
