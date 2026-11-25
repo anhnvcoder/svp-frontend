@@ -6,27 +6,28 @@
 # grype leaves out only the rules of .grype.yaml, each one entry of this file (the same id and package version).
 # The entries come only through @lhci/cli 0.15.1, the dev dependency of make lighthouse; none reaches the web image.
 
-# @lhci/cli 0.15.1 is its latest release and pins lighthouse 12.6.1 (puppeteer-core 24.43.1, which pins
-# chromium-bidi 14.0.0 and @puppeteer/browsers 2.13.2). A run of lhci collect, upload and assert loads none of these
-# packages.
+# @lhci/cli 0.15.1 pins lighthouse 12.6.1 (puppeteer-core 24.43.1, which pins chromium-bidi 14.0.0 and
+# @puppeteer/browsers 2.13.2). A run of lhci collect, upload and assert loads none of these packages. @lhci/cli 0.16.1
+# (lighthouse 13) drops all four, but pins chromium-bidi 157.0.8090-0, published without provenance: the pnpm trust
+# policy refuses it, and taking it is a decision of its own.
 vulnerabilities:
   - id: CVE-2026-19693
-    statement: No fixed release of extract-zip exists. Only @puppeteer/browsers install() calls it, to unpack a browser it downloads, and make lighthouse never downloads one (it runs the Chromium of Playwright).
-    expired_at: 2026-11-24
+    statement: No fixed release of extract-zip exists; @puppeteer/browsers 3 (puppeteer-core 25) no longer depends on it. Only @puppeteer/browsers install() calls it, to unpack a browser it downloads, and make lighthouse never downloads one (it runs the Chromium of Playwright). Read again on 2026-11-25, the fix comes with @lhci/cli 0.16.1 (lighthouse 13.6.0, puppeteer-core 25.18.1), held back by the trust policy on chromium-bidi 157.0.8090-0.
+    expired_at: 2026-12-24
     purls:
       - pkg:npm/extract-zip@2.0.1
   - id: CVE-2026-56876
-    statement: No fixed release of extract-zip exists. Only @puppeteer/browsers install() calls it, to unpack a browser it downloads, and make lighthouse never downloads one (it runs the Chromium of Playwright).
-    expired_at: 2026-11-24
+    statement: No fixed release of extract-zip exists; @puppeteer/browsers 3 (puppeteer-core 25) no longer depends on it. Only @puppeteer/browsers install() calls it, to unpack a browser it downloads, and make lighthouse never downloads one (it runs the Chromium of Playwright). Read again on 2026-11-25, the fix comes with @lhci/cli 0.16.1 (lighthouse 13.6.0, puppeteer-core 25.18.1), held back by the trust policy on chromium-bidi 157.0.8090-0.
+    expired_at: 2026-12-24
     purls:
       - pkg:npm/extract-zip@2.0.1
   - id: CVE-2026-102990
-    statement: Fixed only in basic-ftp 6, and get-uri (latest 8.0.1 too) asks for ^5.3.1. It is reached only through a PAC proxy script fetched over ftp, which nothing configures for make lighthouse, and the listing it parses would come from that FTP server.
-    expired_at: 2026-11-24
+    statement: Fixed in basic-ftp 6.2.1; get-uri 8.0.2 (proxy-agent 8 of @puppeteer/browsers 3) takes basic-ftp 6, while puppeteer-core 24 stays on proxy-agent 6 and basic-ftp 5. It is reached only through a PAC proxy script fetched over ftp, which nothing configures for make lighthouse, and the listing it parses would come from that FTP server. Read again on 2026-11-25, the fix comes with @lhci/cli 0.16.1 (lighthouse 13.6.0, puppeteer-core 25.18.1), held back by the trust policy on chromium-bidi 157.0.8090-0.
+    expired_at: 2026-12-24
     purls:
       - pkg:npm/basic-ftp@5.3.1
   - id: CVE-2023-54404
-    statement: Fixed only in zod 4, a new API that chromium-bidi 14.0.0 (written for zod 3) was not built against. puppeteer-core loads chromium-bidi only for WebDriver BiDi, and Lighthouse drives Chrome over CDP, so its validation never runs; the input would be the local browser's own protocol messages.
-    expired_at: 2026-11-24
+    statement: Fixed in zod 4.6.6; chromium-bidi 14.0.0, the last that puppeteer-core 24 accepts, was built against zod 3. puppeteer-core loads chromium-bidi only for WebDriver BiDi, and Lighthouse drives Chrome over CDP, so its validation never runs; the input would be the local browser's own protocol messages. Read again on 2026-11-25, the fix comes with @lhci/cli 0.16.1 (lighthouse 13.6.0, puppeteer-core 25.18.1), held back by the trust policy on chromium-bidi 157.0.8090-0.
+    expired_at: 2026-12-24
     purls:
       - pkg:npm/zod@3.25.76
