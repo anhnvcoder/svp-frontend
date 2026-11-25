@@ -131,7 +131,7 @@ jq -rs --arg origin "$web_url" '.[] |
   "  \(.requestedUrl | ltrimstr($origin)): LCP \(.audits["largest-contentful-paint"].numericValue | round) ms," +
   " CLS \(.audits["cumulative-layout-shift"].numericValue * 1000 | round / 1000)," +
   " TBT \(.audits["total-blocking-time"].numericValue | round) ms",
-  "    LCP element: \(.audits["largest-contentful-paint-element"].details.items[0].items[0].node |
+  "    LCP element: \(first(.audits["lcp-breakdown-insight"].details.items[]? | select(.type == "node")) // null |
     if . == null then "none" else "\(.selector): \(.snippet)" end)",
   "    console errors: \(.audits["errors-in-console"].details.items // [] | length)",
   ((.audits["errors-in-console"].details.items // [])[] | "      \(.source): \(.description)")' "${results[@]}"

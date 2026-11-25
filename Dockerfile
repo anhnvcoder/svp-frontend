@@ -62,7 +62,7 @@ COPY --from=build /sourcemaps/ /
 # so the compose healthcheck runs node itself. The nonroot tag follows each distroless rebuild; the digest fixes the
 # content. The Node major is part of the image name, which Renovate never changes: moving to Node 27 means editing this
 # name by hand to nodejs27-debian13 in the same pull request.
-FROM gcr.io/distroless/nodejs26-debian13:nonroot@sha256:1d736cf8b5716c07a245301f92717143215d248fd55771ee1936ef4b3302e531
+FROM gcr.io/distroless/nodejs26-debian13:nonroot@sha256:a84242e747fbb5aaaa0180c273b6f7130ca34b3300082192ef58eea96089eb3c
 WORKDIR /app
 # The build's id again, for the server: the release of its GlitchTip events and service.version of its telemetry; empty
 # means none.

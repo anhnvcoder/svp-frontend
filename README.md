@@ -67,12 +67,12 @@ make install
 pnpm exec playwright install chromium webkit
 ```
 
-`pnpm-workspace.yaml` có các override cho những gói chỉ `@lhci/cli` (`make lighthouse`) kéo vào; không gói nào trong số đó tới image web.
-`@lhci/cli` 0.15.1 là bản mới nhất của nó và ghim lighthouse 12.6.1, nên một gói cha mới hơn không mang được các bản vá này vào. Mỗi
-override giới hạn ở gói cha yêu cầu nó, nên không dependent nào khác bị dời theo. Khoá của override nêu gói cha mà không nêu version: pnpm
-im lặng bỏ qua override có version của gói cha không còn khớp, nên `cha@1.2.3>con` sẽ mất bản vá ở lần nâng gói cha kế tiếp, trong khi
-`install --frozen-lockfile` vẫn xanh. Gói con mang dải yêu cầu mà không bản đã vá nào thoả (pnpm áp override khi dải đó giao với dải
-gói cha hỏi), nên một gói cha về sau hỏi dải đã có bản vá sẽ tự giải quyết và không bị ép về các version này.
+`pnpm-workspace.yaml` có các override cho những gói chỉ `@lhci/cli` (`make lighthouse`) kéo vào, khi gói cha của chúng vẫn nhận bản có lỗ
+hổng; không gói nào trong số đó tới image web. Mỗi override giới hạn ở gói cha yêu cầu nó, nên không dependent nào khác bị dời theo. Khoá
+của override nêu gói cha mà không nêu version: pnpm im lặng bỏ qua override có version của gói cha không còn khớp, nên `cha@1.2.3>con` sẽ
+mất bản vá ở lần nâng gói cha kế tiếp, trong khi `install --frozen-lockfile` vẫn xanh. Gói con mang dải yêu cầu mà không bản đã vá nào thoả
+(pnpm áp override khi dải đó giao với dải gói cha hỏi), nên một gói cha về sau hỏi dải đã có bản vá sẽ tự giải quyết và không bị ép về các
+version này.
 
 ## Sử dụng
 

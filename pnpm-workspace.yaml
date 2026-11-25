@@ -12,6 +12,9 @@ trustPolicyExclude:
   # Backport of the ReDoS fix (CVE-2023-25883) to the 6.x line, published 2023-07-10 without provenance three days
   # after 7.5.4 had it; eslint-plugin-import (through eslint-config-next) asks for ^6.3.1.
   - semver@6.3.1
+  # Published by hand without provenance since 157.0.8080-0, after releases with trusted publishing from GitHub
+  # Actions; puppeteer-core 25.18.1 (lighthouse 13 of @lhci/cli), itself with that provenance, pins exactly this one.
+  - chromium-bidi@157.0.8090-0
 # A transitive dependency may come only from the registry, never from git or a tarball URL.
 blockExoticSubdeps: true
 # Lifecycle scripts, decided one by one; true only for a package that cannot work without its script.
@@ -33,26 +36,15 @@ allowBuilds:
 # standalone server of the image.
 ignoredOptionalDependencies:
   - sharp
-# Patched versions of packages that only @lhci/cli (make lighthouse) pulls in; none of them reaches the web image.
-# @lhci/cli 0.15.1 is its latest release and pins lighthouse 12.6.1, so a newer parent cannot bring these in. Each is
-# scoped to the parent that asks for it, so no other dependent moves with it.
+# Patched versions of packages that only @lhci/cli (make lighthouse) pulls in, while its own dependencies still accept
+# the vulnerable ones; none of them reaches the web image. Each is scoped to the parent that asks for it, so no other
+# dependent moves with it.
 
 # A key names the parent without a version: pnpm silently skips an override whose parent version no longer matches,
 # which would lose the fix with a green frozen install. The child carries the range of requests that no fixed release
 # satisfies, so a later parent that asks for a line that has a fix resolves on its own and is never forced onto these
 # versions.
 overrides:
-  # CVE-2022-25883 (ReDoS in new Range). lighthouse lists semver but never imports it, so the major does not matter:
-  # this is the 7.x already in the tree (the 5.7.2 backport has no provenance after 7.5.4 had it, which trustPolicy
-  # refuses, and an exception for a package nobody loads is not worth one). 6.3.1 and 7.5.2 fix the lines above 5.
-  "lighthouse>semver@<6.0.0": 7.8.5
-  # CVE-2026-44705, CVE-2025-54798 (path traversal, symlink write): fixed only on the 0.2 line. Both callers use only
-  # fileSync({ postfix }) (lhci open) and tmpNameSync(options) (external-editor, behind lhci wizard), which 0.2 keeps.
-  "@lhci/cli>tmp@<0.2.0": 0.2.7
-  "external-editor>tmp@<0.2.0": 0.2.7
-  # CVE-2026-41907 (out-of-range writes of v3, v5, v6 into a caller's buffer): no fix below 11; 11.1.1 is the fixed line
-  # that still ships CommonJS for lhci's require('uuid'), and lhci calls only uuid.v4() (the flags file of collect).
-  "@lhci/cli>uuid@<11.0.0": 11.1.1
   # CVE-2026-111181: fixed in 1.20.9, a patch of the same 1.x line with the same dependencies and the same trusted
   # publishing provenance; express 4 (lhci's server) asks for ~1.20.5, which the fix satisfies. The override keeps the
   # fixed version from sliding back while express still accepts the vulnerable ones.
